@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+/* ── Design System Custom Properties ── */
+:root {
+  --accent: #FF6A41;
+  --accent-hover: #FF8566;
+  --bg-dark: #0A0A0F;
+  --bg-card: #12121A;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-hover: rgba(255, 255, 255, 0.14);
+  --positive: #22C55E;
+  --negative: #EF4444;
+  --muted: #A8BBCC;
+  --font-montserrat: "Montserrat", sans-serif;
+}
+
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-bg-dark: var(--bg-dark);
+  --color-bg-card: var(--bg-card);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-muted: var(--muted);
+  --font-sans: var(--font-montserrat);
+}
+
+/* ── Body ── */
+body {
+  background: var(--bg-dark);
+  color: #fff;
+  font-family: var(--font-montserrat);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 80% 60% at 50% -20%, rgba(255, 106, 65, 0.08), transparent),
+    radial-gradient(ellipse 60% 50% at 80% 50%, rgba(255, 106, 65, 0.04), transparent);
+  pointer-events: none;
+}
+
+/* ── Glassmorphism Utility ── */
+.glass-card {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 1rem;
+}
+
+.glass-card-hover {
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.glass-card-hover:hover {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* ── Scrollbar ── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Touch targets ── */
+button, a, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* ── Tabular numbers for data displays ── */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* ── Skeleton shimmer ── */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.07) 50%,
+    rgba(255, 255, 255, 0.03) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .animate-pulse,
+  .animate-fade-in,
+  .animate-slide-up,
+  .skeleton-shimmer {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Animations ── */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s ease-out forwards;
+}
+
+/* ── Space-Y Utilities (Tailwind v4 not generating these) ── */
+.space-y-0\.5 > :not(:first-child) { margin-top: 0.125rem; }
+.space-y-1 > :not(:first-child) { margin-top: 0.25rem; }
+.space-y-1\.5 > :not(:first-child) { margin-top: 0.375rem; }
+.space-y-2 > :not(:first-child) { margin-top: 0.5rem; }
+.space-y-3 > :not(:first-child) { margin-top: 0.75rem; }
+.space-y-4 > :not(:first-child) { margin-top: 1rem; }
+.space-y-5 > :not(:first-child) { margin-top: 1.25rem; }
+.space-y-6 > :not(:first-child) { margin-top: 1.5rem; }
+
+@media (min-width: 640px) {
+  .sm\:space-y-4 > :not(:first-child) { margin-top: 1rem; }
+  .sm\:space-y-5 > :not(:first-child) { margin-top: 1.25rem; }
+  .sm\:space-y-6 > :not(:first-child) { margin-top: 1.5rem; }
+}
+
+/* ── Remove blue focus outline on clickable cards & charts ── */
+*:focus {
+  outline: none;
+}
+*:focus-visible {
+  outline: 2px solid rgba(255, 106, 65, 0.5);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none !important;
+}

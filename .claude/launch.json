@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ontrack-dev",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "export PATH=/usr/local/bin:$PATH && npm run dev"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}
