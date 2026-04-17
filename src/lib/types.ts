@@ -209,3 +209,32 @@ export interface TierConfig {
   spendMax: number;
   notes: string;
 }
+
+/* ── Suggestion types ── */
+
+export type SuggestionCategory =
+  | "scale"
+  | "fatigue"
+  | "waste"
+  | "performance"
+  | "setup"
+  | "attribution";
+
+export type SuggestionPriority = "high" | "medium" | "low";
+
+export interface Suggestion {
+  /** Deterministic hash of ruleId + entity + key data point. Stable across refreshes. */
+  id: string;
+  ruleId: string;
+  category: SuggestionCategory;
+  priority: SuggestionPriority;
+  title: string;
+  detail?: string;
+  action: string;
+  expectedImpact?: string;
+  entityType: "campaign" | "ad" | "keyword" | "account";
+  entityName: string;
+  dataContext: Record<string, number | string>;
+  /** ISO timestamp of when the suggestion was generated. */
+  createdAt: string;
+}
