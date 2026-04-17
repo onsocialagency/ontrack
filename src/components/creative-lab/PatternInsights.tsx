@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Lightbulb, TrendingUp, TrendingDown, AlertTriangle, Zap, Tag } from "lucide-react";
+import { Lightbulb, TrendingUp, AlertTriangle, Zap, Tag } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { LiveCreative } from "@/lib/creativeAggregator";
 

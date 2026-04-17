@@ -16,7 +16,6 @@ import { VenueTabs } from "@/components/layout/venue-tabs";
 import { assignIrgBrand } from "@/lib/irg-brands";
 import type { WindsorRow } from "@/lib/windsor";
 import { formatCurrency, formatROAS, formatNumber, cn, getBillingPeriod } from "@/lib/utils";
-import { DataBadge } from "@/components/ui/data-badge";
 import { DataBlur } from "@/components/ui/data-blur";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
@@ -295,11 +294,6 @@ export default function EcomPage() {
   const currentLabel = chartData.length > 0
     ? `${chartData[0].date} - ${chartData[chartData.length - 1].date}`
     : `Last ${days} days`;
-
-  const spendBreakdown = [
-    { name: "Meta Ads", value: metaSpend, formatted: formatCurrency(metaSpend, client.currency), color: "#3B82F6" },
-    { name: "Google Ads", value: googleSpend, formatted: formatCurrency(googleSpend, client.currency), color: "#22C55E" },
-  ];
 
   const revenueBreakdown = [
     { name: "Meta Ads", value: metaRevenue, formatted: formatCurrency(metaRevenue, client.currency), color: "#3B82F6" },

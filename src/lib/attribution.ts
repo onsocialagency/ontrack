@@ -507,9 +507,8 @@ export function runAttribution(rows: WindsorRow[]): LegacyAttributionResult {
     };
   }
 
-  // Last click totals are the raw platform-reported numbers
-  const lastClickResult = all.results.lastClick;
-  const deduplicatedConversions = all.results.linear.deduplicatedTotal; // any non-lastClick model has it
+  // Deduplicated conversions from any non-lastClick model
+  const deduplicatedConversions = all.results.linear.deduplicatedTotal;
 
   return {
     modelResults,

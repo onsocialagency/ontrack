@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { PillToggle } from "@/components/ui/pill-toggle";
 import { Tooltip } from "@/components/ui/tooltip";
-import { DataBadge } from "@/components/ui/data-badge";
 import { useClient } from "@/lib/client-context";
 import { useVenue } from "@/lib/venue-context";
 import { useWindsor } from "@/lib/use-windsor";

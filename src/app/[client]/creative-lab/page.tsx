@@ -8,10 +8,8 @@ import { DataBlur } from "@/components/ui/data-blur";
 import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
-import { useVenue } from "@/lib/venue-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { getClientCreatives } from "@/lib/mock-data";
-import { cn } from "@/lib/utils";
 import type { WindsorRow } from "@/lib/windsor";
 import type { CreativePlatform } from "@/lib/types";
 
@@ -59,7 +57,6 @@ export default function CreativeLabPage() {
   const client = ctx?.clientConfig;
   const mockCreatives = getClientCreatives(clientSlug, client ?? undefined);
   const isIrg = clientSlug === "irg";
-  const { activeVenue } = useVenue();
 
   const currency = client?.currency || "GBP";
 
@@ -96,7 +93,6 @@ export default function CreativeLabPage() {
   }, [windsorData]);
 
   // TikTok creatives (if client has TikTok accounts)
-  const hasTikTok = client?.tiktokAccountIds && client.tiktokAccountIds.length > 0;
   const { data: tiktokData } = useWindsor<WindsorRow[]>({
     clientSlug,
     type: "tiktok_creatives",

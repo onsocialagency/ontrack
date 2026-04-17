@@ -1,8 +1,5 @@
 import type {
   Client,
-  ClientType,
-  Currency,
-  Tier,
   Platform,
   DailyMetric,
   KPISummary,

@@ -31,7 +31,6 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const clientSlug = searchParams.get("client");
   const type = searchParams.get("type") || "campaigns";
-  const mode = searchParams.get("mode"); // "pacing" = billing period fetch
   const days = parseInt(searchParams.get("days") || "30", 10);
   const dateFrom = searchParams.get("date_from");
   const dateTo = searchParams.get("date_to");

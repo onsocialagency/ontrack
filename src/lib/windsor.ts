@@ -131,23 +131,6 @@ function extractAction(
   return 0;
 }
 
-/**
- * Extract and SUM numeric values across multiple action types from Facebook's actions array.
- * Used when we want to count ALL matching conversions (e.g. leads + custom events).
- */
-function extractActionSum(
-  actions: { action_type: string; value: string }[] | undefined,
-  actionTypes: string[],
-): number {
-  if (!actions || !Array.isArray(actions)) return 0;
-  let total = 0;
-  for (const type of actionTypes) {
-    const found = actions.find((a) => a.action_type === type);
-    if (found) total += Number(found.value) || 0;
-  }
-  return total;
-}
-
 function extractActionValue(
   actionValues: { action_type: string; value: string }[] | undefined,
   actionTypes: string[],

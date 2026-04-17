@@ -4,7 +4,6 @@ import { useMemo, useState, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { PacingBar } from "@/components/ui/pacing-bar";
-import { DataBadge } from "@/components/ui/data-badge";
 import { DataBlur } from "@/components/ui/data-blur";
 import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
 import { useClient } from "@/lib/client-context";
@@ -20,8 +19,6 @@ import {
   TrendingUp,
   Target,
   ShoppingCart,
-  Eye,
-  Calendar,
   AlertTriangle,
 } from "lucide-react";
 import {
@@ -175,6 +172,47 @@ export default function LaurastarOverview() {
   const [kpiDetail, setKpiDetail] = useState<KpiDetailData | null>(null);
   const closeKpiDetail = useCallback(() => setKpiDetail(null), []);
 
+  // ── Laurastar-specific: Weekend vs Weekday ──
+  const weekdayWeekend = useMemo(() => {
+    const weekday = { spend: 0, revenue: 0, conversions: 0, days: 0 };
+    const weekend = { spend: 0, revenue: 0, conversions: 0, days: 0 };
+    for (const d of chartData) {
+      const idx = chartData.indexOf(d);
+      const dayOfWeek = idx % 7;
+      const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
+      const bucket = isWeekend ? weekend : weekday;
+      bucket.spend += d.spend;
+      bucket.revenue += d.revenue;
+      bucket.conversions += d.conversions;
+      bucket.days += 1;
+    }
+    return {
+      weekday: {
+        avgSpend: weekday.days > 0 ? weekday.spend / weekday.days : 0,
+        avgRevenue: weekday.days > 0 ? weekday.revenue / weekday.days : 0,
+        roas: weekday.spend > 0 ? weekday.revenue / weekday.spend : 0,
+        totalConv: weekday.conversions,
+      },
+      weekend: {
+        avgSpend: weekend.days > 0 ? weekend.spend / weekend.days : 0,
+        avgRevenue: weekend.days > 0 ? weekend.revenue / weekend.days : 0,
+        roas: weekend.spend > 0 ? weekend.revenue / weekend.spend : 0,
+        totalConv: weekend.conversions,
+      },
+    };
+  }, [chartData]);
+
+  // ── Laurastar-specific: Creative health ──
+  const creativeHealth = useMemo(() => {
+    const metaCreatives = creatives.filter(c => c.platform === "meta");
+    const fatigued = metaCreatives.filter(c => c.isFatigued).length;
+    const avgFrequency = metaCreatives.length > 0
+      ? +(metaCreatives.reduce((s, c) => s + c.frequency, 0) / metaCreatives.length).toFixed(2)
+      : 0;
+    const highPerformers = metaCreatives.filter(c => c.compositeScore >= 60).length;
+    return { total: metaCreatives.length, fatigued, avgFrequency, highPerformers };
+  }, [creatives]);
+
   if (!client) return null;
 
   const currency = client.currency;
@@ -239,47 +277,6 @@ export default function LaurastarOverview() {
   const overReportingPct = platformReportedRevenue > 0 && shopifyRevenue > 0
     ? +((platformReportedRevenue - shopifyRevenue) / shopifyRevenue * 100).toFixed(1)
     : 0;
-
-  // ── Laurastar-specific: Weekend vs Weekday ──
-  const weekdayWeekend = useMemo(() => {
-    const weekday = { spend: 0, revenue: 0, conversions: 0, days: 0 };
-    const weekend = { spend: 0, revenue: 0, conversions: 0, days: 0 };
-    for (const d of chartData) {
-      const idx = chartData.indexOf(d);
-      const dayOfWeek = idx % 7;
-      const isWeekend = dayOfWeek === 5 || dayOfWeek === 6;
-      const bucket = isWeekend ? weekend : weekday;
-      bucket.spend += d.spend;
-      bucket.revenue += d.revenue;
-      bucket.conversions += d.conversions;
-      bucket.days += 1;
-    }
-    return {
-      weekday: {
-        avgSpend: weekday.days > 0 ? weekday.spend / weekday.days : 0,
-        avgRevenue: weekday.days > 0 ? weekday.revenue / weekday.days : 0,
-        roas: weekday.spend > 0 ? weekday.revenue / weekday.spend : 0,
-        totalConv: weekday.conversions,
-      },
-      weekend: {
-        avgSpend: weekend.days > 0 ? weekend.spend / weekend.days : 0,
-        avgRevenue: weekend.days > 0 ? weekend.revenue / weekend.days : 0,
-        roas: weekend.spend > 0 ? weekend.revenue / weekend.spend : 0,
-        totalConv: weekend.conversions,
-      },
-    };
-  }, [chartData]);
-
-  // ── Laurastar-specific: Creative health ──
-  const creativeHealth = useMemo(() => {
-    const metaCreatives = creatives.filter(c => c.platform === "meta");
-    const fatigued = metaCreatives.filter(c => c.isFatigued).length;
-    const avgFrequency = metaCreatives.length > 0
-      ? +(metaCreatives.reduce((s, c) => s + c.frequency, 0) / metaCreatives.length).toFixed(2)
-      : 0;
-    const highPerformers = metaCreatives.filter(c => c.compositeScore >= 60).length;
-    return { total: metaCreatives.length, fatigued, avgFrequency, highPerformers };
-  }, [creatives]);
 
   return (
     <>

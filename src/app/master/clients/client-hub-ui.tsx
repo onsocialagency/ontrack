@@ -13,9 +13,6 @@ import {
   X,
   Loader2,
   ExternalLink,
-  Key,
-  Wifi,
-  WifiOff,
 } from "lucide-react";
 
 /* ── Types ── */

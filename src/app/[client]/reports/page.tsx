@@ -11,9 +11,7 @@ import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
-import { useVenue } from "@/lib/venue-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
-import { DataBadge } from "@/components/ui/data-badge";
 import { FileText, Send, Download, Clock, Loader2, Trash2, Eye } from "lucide-react";
 
 /* ── Windsor aggregation helpers ── */
@@ -92,7 +90,6 @@ interface SavedReport {
 export default function ReportsPage() {
   const { client: clientSlug } = useParams<{ client: string }>();
   const isIrg = clientSlug === "irg";
-  const { activeVenue } = useVenue();
   const ctx = useClient();
   const clientOrNull = ctx?.clientConfig;
   const { locale: clientLocale, fullDate: fmtFullDate } = useLocale();

@@ -3,7 +3,6 @@
 import { useMemo } from "react";
 import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
-import { DataBadge } from "@/components/ui/data-badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
@@ -13,8 +12,6 @@ import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import {
   LEAD_TYPES,
   MINISTRY_BRAND,
-  HUBSPOT_CONNECTED,
-  HUBSPOT_PENDING_MESSAGE,
   getCplStatus,
   CPL_STATUS_COLORS,
   aggregateByLeadType,
@@ -106,11 +103,6 @@ export default function CrmReconciliationPage() {
     () => campaigns.filter((c) => c.platform === "google").reduce((s, c) => s + c.conversions, 0),
     [campaigns],
   );
-  const totalSpend = useMemo(
-    () => campaigns.reduce((s, c) => s + c.spend, 0),
-    [campaigns],
-  );
-  const totalConversions = metaConversions + googleConversions;
 
   // Lead type breakdown from campaign names
   const leadTypeBreakdown = useMemo(() => {

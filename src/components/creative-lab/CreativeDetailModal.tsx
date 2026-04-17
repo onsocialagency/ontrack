@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useEffect } from "react";
 import { X, ExternalLink, Clock, Play, Image, Layers, Type, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatROAS } from "@/lib/utils";

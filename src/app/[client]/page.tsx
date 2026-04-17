@@ -13,7 +13,6 @@ import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
-import { DataBadge } from "@/components/ui/data-badge";
 import { DataBlur } from "@/components/ui/data-blur";
 import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
 import {
@@ -28,7 +27,6 @@ import {
   DollarSign,
   TrendingUp,
   Target,
-  Eye,
   ShoppingCart,
 } from "lucide-react";
 import {
@@ -41,7 +39,6 @@ import {
   CartesianGrid,
   BarChart,
   Bar,
-  Legend,
 } from "recharts";
 
 /* ── Windsor data aggregation ── */
@@ -131,6 +128,10 @@ export default function ClientOverviewPage() {
   if (clientSlug === "irg") return <IrgOverview />;
   if (clientSlug === "laurastar") return <LaurastarOverview />;
 
+  return <DefaultClientOverview clientSlug={clientSlug} />;
+}
+
+function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
   const { days, preset, dateFrom, dateTo, compareEnabled, prevDateFrom, prevDateTo } = useDateRange();
   const { shortDate: fmtDate } = useLocale();
   const ctx = useClient();
@@ -224,42 +225,10 @@ export default function ClientOverviewPage() {
   const [kpiDetail, setKpiDetail] = useState<KpiDetailData | null>(null);
   const closeKpiDetail = useCallback(() => setKpiDetail(null), []);
 
-  // Platform-level daily data for breakdown
-  const platformDaily = useMemo(() => {
-    if (!isLive || !windsorData) return { meta: {} as Record<string, number>, google: {} as Record<string, number> };
-    const meta: Record<string, number> = {};
-    const google: Record<string, number> = {};
-    for (const r of windsorData) {
-      const d = r.date ? fmtDate(r.date) : "";
-      if (!d) continue;
-      if (r.source === "facebook") {
-        meta[d] = (meta[d] || 0) + (Number(r.spend) || 0);
-      } else {
-        google[d] = (google[d] || 0) + (Number(r.spend) || 0);
-      }
-    }
-    return { meta, google };
-  }, [isLive, windsorData, fmtDate]);
-
-  if (!client) return null;
-
-  const isLeadGen = client.type === "lead_gen";
-
-  // Platform split
-  const metaSpend = isLive
-    ? windsorData.filter((r) => r.source === "facebook").reduce((s, r) => s + (Number(r.spend) || 0), 0)
-    : kpis.spend * client.metaAllocation;
-  const googleSpend = isLive
-    ? windsorData.filter((r) => r.source === "google_ads" || r.source === "adwords").reduce((s, r) => s + (Number(r.spend) || 0), 0)
-    : kpis.spend * client.googleAllocation;
-  const totalPlatformSpend = metaSpend + googleSpend;
-  const metaPct = totalPlatformSpend > 0 ? (metaSpend / totalPlatformSpend) * 100 : 50;
-  const googlePct = totalPlatformSpend > 0 ? (googleSpend / totalPlatformSpend) * 100 : 50;
-
   // ── Billing-period pacing (independent of date range filter) ──
   const billingPeriod = useMemo(() => {
-    return getBillingPeriod(client.billingStartDay ?? 1);
-  }, [client.billingStartDay]);
+    return getBillingPeriod(client?.billingStartDay ?? 1);
+  }, [client?.billingStartDay]);
 
   // Separate Windsor fetch for pacing — always fetches billing period dates
   const { data: pacingWindsorData, source: pacingSource } = useWindsor<WindsorRow[]>({
@@ -276,6 +245,21 @@ export default function ClientOverviewPage() {
     // Fallback: estimate from mock data proportionally
     return kpis.spend * (billingPeriod.daysElapsed / days);
   }, [pacingSource, pacingWindsorData, kpis.spend, billingPeriod.daysElapsed, days]);
+
+  if (!client) return null;
+
+  const isLeadGen = client.type === "lead_gen";
+
+  // Platform split
+  const metaSpend = isLive
+    ? windsorData.filter((r) => r.source === "facebook").reduce((s, r) => s + (Number(r.spend) || 0), 0)
+    : kpis.spend * client.metaAllocation;
+  const googleSpend = isLive
+    ? windsorData.filter((r) => r.source === "google_ads" || r.source === "adwords").reduce((s, r) => s + (Number(r.spend) || 0), 0)
+    : kpis.spend * client.googleAllocation;
+  const totalPlatformSpend = metaSpend + googleSpend;
+  const metaPct = totalPlatformSpend > 0 ? (metaSpend / totalPlatformSpend) * 100 : 50;
+  const googlePct = totalPlatformSpend > 0 ? (googleSpend / totalPlatformSpend) * 100 : 50;
 
   // Date range label for the detail modal
   const currentLabel = chartData.length > 0
@@ -301,12 +285,6 @@ export default function ClientOverviewPage() {
   const googleConversions = isLive
     ? windsorData.filter((r) => r.source === "google_ads" || r.source === "adwords").reduce((s, r) => s + (Number(r.conversions) || 0), 0)
     : Math.round(kpis.conversions * client.googleAllocation);
-  const metaImpressions = isLive
-    ? windsorData.filter((r) => r.source === "facebook").reduce((s, r) => s + (Number(r.impressions) || 0), 0)
-    : Math.round(kpis.impressions * client.metaAllocation);
-  const googleImpressions = isLive
-    ? windsorData.filter((r) => r.source === "google_ads" || r.source === "adwords").reduce((s, r) => s + (Number(r.impressions) || 0), 0)
-    : Math.round(kpis.impressions * client.googleAllocation);
 
   // Helper to build KPI detail data
   const buildKpiDetail = (
@@ -338,23 +316,6 @@ export default function ClientOverviewPage() {
     conversions: formatNumber(prevKpis.conversions),
     cpl: prevKpis.cpl !== undefined ? formatCurrency(prevKpis.cpl, client.currency) : undefined,
   } : null;
-
-  // Platform spend bar chart data
-  const platformChartData = useMemo(() => {
-    if (!isLive || !windsorData) return [];
-    const byDate: Record<string, { date: string; meta: number; google: number }> = {};
-    for (const r of windsorData) {
-      const d = r.date ? fmtDate(r.date) : "";
-      if (!d) continue;
-      if (!byDate[d]) byDate[d] = { date: d, meta: 0, google: 0 };
-      if (r.source === "facebook") {
-        byDate[d].meta += Number(r.spend) || 0;
-      } else {
-        byDate[d].google += Number(r.spend) || 0;
-      }
-    }
-    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
-  }, [isLive, windsorData, fmtDate]);
 
   return (
     <>

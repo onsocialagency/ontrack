@@ -3,7 +3,6 @@
 import { useMemo, useState, useCallback } from "react";
 import { Header } from "@/components/layout/header";
 import { KpiCard } from "@/components/ui/kpi-card";
-import { DataBadge } from "@/components/ui/data-badge";
 import { DataBlur } from "@/components/ui/data-blur";
 import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
 import { useWindsor } from "@/lib/use-windsor";
@@ -26,22 +25,16 @@ import { formatCurrency, formatNumber, formatROAS, cn } from "@/lib/utils";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
   DollarSign, Target, Eye, MousePointer, Percent,
-  AlertTriangle, Info, TrendingDown, TrendingUp, ChevronRight,
+  AlertTriangle, Info,
 } from "lucide-react";
 import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  AreaChart,
-  Area,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts";
 
 /* ── Types ── */
@@ -80,7 +73,7 @@ interface BrandMetrics {
 
 /* ── Aggregation ── */
 
-function aggregateByBrand(rows: WindsorRow[], fmtDate: (iso: string) => string) {
+function aggregateByBrand(rows: WindsorRow[]) {
   const brands: Record<IrgBrandId | "UNKNOWN", BrandMetrics> = {
     IR_HOTEL: { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0, ctr: 0, cpc: 0, cpa: 0, metaSpend: 0, googleSpend: 0, metaRevenue: 0, googleRevenue: 0, metaConversions: 0, googleConversions: 0, campaigns: [] },
     IR_EVENTS: { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0, ctr: 0, cpc: 0, cpa: 0, metaSpend: 0, googleSpend: 0, metaRevenue: 0, googleRevenue: 0, metaConversions: 0, googleConversions: 0, campaigns: [] },
@@ -212,10 +205,6 @@ export default function IrgOverview() {
   const closeKpiDetail = useCallback(() => setKpiDetail(null), []);
   const [showGaps, setShowGaps] = useState(true);
 
-  // Fetch Windsor data — season to date by default
-  const seasonDateFrom = "2026-03-01";
-  const seasonDateTo = new Date().toISOString().split("T")[0];
-
   const { data: windsorData, source: dataSource, loading } = useWindsor<WindsorRow[]>({
     clientSlug: "irg",
     type: "campaigns",
@@ -227,7 +216,7 @@ export default function IrgOverview() {
   const rows = isLive ? windsorData : [];
 
   // Aggregate
-  const brandMetrics = useMemo(() => aggregateByBrand(rows, fmtDate), [rows, fmtDate]);
+  const brandMetrics = useMemo(() => aggregateByBrand(rows), [rows]);
   const dailyData = useMemo(() => aggregateDaily(rows, fmtDate), [rows, fmtDate]);
 
   // Totals

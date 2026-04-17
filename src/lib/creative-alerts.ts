@@ -25,7 +25,7 @@ export function computeCreativeAlerts(creatives: LiveCreative[]): CreativeAlertS
   let fatiguedCount = 0;
   let killCount = 0;
   let trafficWarningCount = 0;
-  let lowQSCount = 0;
+  const lowQSCount = 0;
   let learningCount = 0;
 
   for (const c of creatives) {

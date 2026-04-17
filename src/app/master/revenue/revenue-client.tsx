@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Header } from "@/components/layout/header";
 import { PillToggle } from "@/components/ui/pill-toggle";
-import { formatCurrency, cn } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 import type { Currency, TierConfig, RevenueClient } from "@/lib/types";
 
 /* ── Tier reference tables ── */

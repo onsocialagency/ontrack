@@ -11,17 +11,14 @@ import { useDateRange } from "@/lib/date-range-context";
 import type { GA4Row } from "@/lib/windsor";
 import { formatNumber, formatCurrency } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
-import { useVenue } from "@/lib/venue-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import {
-  BarChart3,
   Users,
   MousePointerClick,
   Clock,
   ArrowUpDown,
   UserPlus,
   ShoppingCart,
-  Eye,
   Percent,
   DollarSign,
   Layers,
@@ -208,7 +205,6 @@ function generateMockGA4(numDays: number): GA4Row[] {
 export default function AnalyticsPage() {
   const { client: clientSlug } = useParams<{ client: string }>();
   const isIrg = clientSlug === "irg";
-  const { activeVenue } = useVenue();
   const { days, preset, dateFrom, dateTo } = useDateRange();
   const { shortDate: fmtDate } = useLocale();
   const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};

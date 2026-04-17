@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { AlertTriangle, Search, ExternalLink, TrendingUp, Target, Zap, Eye } from "lucide-react";
+import { Search } from "lucide-react";
 import { cn, formatCurrency, formatROAS } from "@/lib/utils";
 import { PillToggle } from "@/components/ui/pill-toggle";
 import type { WindsorRow } from "@/lib/windsor";

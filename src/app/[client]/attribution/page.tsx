@@ -4,7 +4,6 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams, useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { KpiCard } from "@/components/ui/kpi-card";
-import { PillToggle } from "@/components/ui/pill-toggle";
 import { Tooltip } from "@/components/ui/tooltip";
 import { getClientKPIs, getClientCampaigns } from "@/lib/mock-data";
 import { useClient } from "@/lib/client-context";
@@ -24,19 +23,14 @@ import { VenueTabs } from "@/components/layout/venue-tabs";
 import { assignIrgBrand } from "@/lib/irg-brands";
 import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
 import { formatCurrency, formatROAS, formatNumber, cn } from "@/lib/utils";
-import { useLocale } from "@/lib/locale-context";
-import { DataBadge } from "@/components/ui/data-badge";
 import type { CampaignRow } from "@/lib/types";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
-  GitBranch,
-  DollarSign,
   TrendingUp,
   BarChart3,
   ChevronRight,
   ChevronDown,
   Download,
-  ChevronUp,
   Circle,
   Info,
 } from "lucide-react";
@@ -56,11 +50,6 @@ import {
 
 /* ── Constants ── */
 
-const MODEL_OPTIONS = MODEL_NAMES.map((m) => ({
-  value: m,
-  label: MODEL_LABELS[m],
-}));
-
 const PLATFORM_OPTIONS = [
   { value: "all", label: "All" },
   { value: "meta", label: "Meta" },
@@ -79,17 +68,6 @@ type SortKey =
   | "adjConversions"
   | "cpa"
   | "roas";
-
-/* ── KPI Tooltips ── */
-
-const KPI_TOOLTIPS: Record<string, string> = {
-  Conversions: "Total conversion actions tracked across all platforms",
-  Revenue: "Total revenue attributed to ad campaigns",
-  ROAS: "Return on Ad Spend — revenue divided by ad spend",
-  CPA: "Cost Per Acquisition — spend divided by conversions",
-  CPL: "Cost Per Lead — spend divided by leads generated",
-  MER: "Marketing Efficiency Ratio — total revenue / total spend, attribution-agnostic",
-};
 
 /* ── Campaign status detection ── */
 
@@ -271,7 +249,7 @@ function aggregateAds(rows: WindsorRow[], campaignName: string, adSetName?: stri
 
 /* ── CSV export ── */
 
-function exportCSV(rows: (LiveCampaign | CampaignRow)[], allRows: CampaignRow[] | null, currency: string) {
+function exportCSV(rows: (LiveCampaign | CampaignRow)[]) {
   const headers = [
     "Campaign", "Platform", "Spend", "Impressions", "Clicks",
     "CTR", "CPC", "CPM", "Conversions", "CPA", "ROAS",
@@ -304,7 +282,6 @@ export default function AttributionPage() {
   const { client: clientSlug } = useParams<{ client: string }>();
   const router = useRouter();
   const { days, preset, dateFrom, dateTo } = useDateRange();
-  const { locale: clientLocale } = useLocale();
   const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};
   const ctx = useClient();
   const clientOrNull = ctx?.clientConfig;
@@ -356,14 +333,10 @@ export default function AttributionPage() {
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
   const [expandedAdSets, setExpandedAdSets] = useState<Set<string>>(new Set());
   const [expandedChannels, setExpandedChannels] = useState<Set<string>>(new Set(["meta", "google"]));
-  const [showModelComparison, setShowModelComparison] = useState(false);
   const [kpiDetail, setKpiDetail] = useState<KpiDetailData | null>(null);
   const closeKpiDetail = useCallback(() => setKpiDetail(null), []);
 
-  if (!clientOrNull) return <div className="p-8 text-[#94A3B8]">Client not found</div>;
-  const client = clientOrNull;
-
-  const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
+  const isLive = dataSource === "windsor" && !!windsorData && windsorData.length > 0;
 
   // IRG venue filtering — filter Windsor rows to the selected venue
   const venueFilteredData = useMemo(() => {
@@ -374,12 +347,6 @@ export default function AttributionPage() {
       return assignIrgBrand(campaign, accountId) === activeVenue;
     });
   }, [isLive, isIrg, activeVenue, windsorData]);
-
-  // Last updated timestamp
-  const lastUpdated = useMemo(() => {
-    if (!isLive || !windsorData?.length) return null;
-    return new Date().toLocaleTimeString(clientLocale, { hour: "2-digit", minute: "2-digit" });
-  }, [isLive, windsorData]);
 
   // Run attribution engine on live data
   const attribution = useMemo(() => {
@@ -392,29 +359,6 @@ export default function AttributionPage() {
     if (!isLive || !venueFilteredData?.length) return [];
     return aggregateWindsorCampaigns(venueFilteredData);
   }, [isLive, venueFilteredData]);
-
-  // Current model results
-  const currentModel = attribution?.modelResults[activeModel] ?? null;
-
-  // KPIs — driven by attribution model when live
-  // Use de-duplicated figures to avoid double-counting when both platforms claim same conversions
-  const totalConversions = attribution ? attribution.deduplicatedConversions : mockKpis.conversions;
-  const totalRevenue = attribution ? attribution.totalRevenue : mockKpis.revenue; // already de-duplicated
-  const totalSpend = attribution ? attribution.totalSpend : mockKpis.spend;
-  const mer = attribution ? attribution.mer : mockKpis.mer;
-  // Platform-reported (raw, before de-duplication) for reference
-  const platformReportedRevenue = attribution ? attribution.platformReportedRevenue : mockKpis.revenue;
-  // Per-platform reported revenue
-  const metaReportedRevenue = attribution ? attribution.metaReportedRevenue : mockKpis.revenue * client.metaAllocation;
-  const googleReportedRevenue = attribution ? attribution.googleReportedRevenue : mockKpis.revenue * client.googleAllocation;
-
-  const modelBlendedRoas = currentModel?.blendedRoas ?? (totalSpend > 0 ? totalRevenue / totalSpend : 0);
-  const modelCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
-
-  const metaSpend = attribution ? attribution.metaSpend : totalSpend * client.metaAllocation;
-  const googleSpend = attribution ? attribution.googleSpend : totalSpend * client.googleAllocation;
-
-  const isLeadGen = client.type === "lead_gen";
 
   // Daily sparkline data for KPI cards
   const sparklines = useMemo(() => {
@@ -531,6 +475,26 @@ export default function AttributionPage() {
     [sortKey, sortAsc],
   );
 
+  if (!clientOrNull) return <div className="p-8 text-[#94A3B8]">Client not found</div>;
+  const client = clientOrNull;
+
+  // Current model results
+  const currentModel = attribution?.modelResults[activeModel] ?? null;
+
+  // KPIs — driven by attribution model when live
+  // Use de-duplicated figures to avoid double-counting when both platforms claim same conversions
+  const totalConversions = attribution ? attribution.deduplicatedConversions : mockKpis.conversions;
+  const totalRevenue = attribution ? attribution.totalRevenue : mockKpis.revenue;
+  const totalSpend = attribution ? attribution.totalSpend : mockKpis.spend;
+  const mer = attribution ? attribution.mer : mockKpis.mer;
+
+  const modelBlendedRoas = currentModel?.blendedRoas ?? (totalSpend > 0 ? totalRevenue / totalSpend : 0);
+
+  const metaSpend = attribution ? attribution.metaSpend : totalSpend * client.metaAllocation;
+  const googleSpend = attribution ? attribution.googleSpend : totalSpend * client.googleAllocation;
+
+  const isLeadGen = client.type === "lead_gen";
+
   function SortHeader({ label, colKey, tooltip }: { label: string; colKey: SortKey; tooltip?: string }) {
     const active = sortKey === colKey;
     return (
@@ -548,7 +512,7 @@ export default function AttributionPage() {
   }
 
   // Render ad set rows for drill-down
-  function renderAdSetRows(campaignName: string, platform: "meta" | "google") {
+  function renderAdSetRows(campaignName: string) {
     if (!creativeData || !isLive) return null;
     const adSets = aggregateAdSets(creativeData, campaignName);
     if (adSets.length === 0) {
@@ -713,7 +677,7 @@ export default function AttributionPage() {
           </td>
         </tr>
         {/* Live drill-down: ad sets and ads */}
-        {isCampaignExpanded && isLive && renderAdSetRows(row.name, row.platform as "meta" | "google")}
+        {isCampaignExpanded && isLive && renderAdSetRows(row.name)}
         {/* Mock drill-down */}
         {mockChildren.map((child) => (
           <tr
@@ -741,12 +705,6 @@ export default function AttributionPage() {
       </React.Fragment>
     );
   }
-
-  // Platform ROAS helpers
-  const metaRows = isLive ? liveCampaigns.filter((c) => c.platform === "meta") : [];
-  const googleRows = isLive ? liveCampaigns.filter((c) => c.platform === "google") : [];
-  const metaROAS = (() => { const s = metaRows.reduce((a, c) => a + c.spend, 0); const r = metaRows.reduce((a, c) => a + c.revenue, 0); return s > 0 ? r / s : 0; })();
-  const googleROAS = (() => { const s = googleRows.reduce((a, c) => a + c.spend, 0); const r = googleRows.reduce((a, c) => a + c.revenue, 0); return s > 0 ? r / s : 0; })();
 
   return (
     <>
@@ -934,7 +892,7 @@ export default function AttributionPage() {
                     </div>
                   </div>
                   <button
-                    onClick={() => exportCSV(filtered, isLive ? null : allMockCampaigns, client.currency)}
+                    onClick={() => exportCSV(filtered)}
                     className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium bg-[#FF6A41] text-white hover:bg-[#FF6A41]/90 transition-colors"
                   >
                     <Download size={12} />

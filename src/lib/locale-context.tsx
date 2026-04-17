@@ -102,10 +102,6 @@ function buildFormatters(config: LocaleConfig): LocaleFormatters {
       // Parse "YYYY-MM-DD" → Date, then format as locale-appropriate DD/MM or MM/DD
       const d = new Date(isoDate + "T12:00:00"); // noon to avoid timezone shift
       const parts = shortDateFmt.formatToParts(d);
-      const day = parts.find((p) => p.type === "day")?.value ?? "";
-      const month = parts.find((p) => p.type === "month")?.value ?? "";
-      // Use slash separator — day/month order comes from locale
-      const sep = parts.find((p) => p.type === "literal")?.value ?? "/";
       // Rebuild from parts in locale order
       return parts
         .filter((p) => p.type === "day" || p.type === "month" || p.type === "literal")

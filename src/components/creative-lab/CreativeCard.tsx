@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, Image, Layers, Type, AlertTriangle, Zap, Shield } from "lucide-react";
+import { Play, Image, Layers, Type, AlertTriangle, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatROAS, formatCurrency } from "@/lib/utils";
 import type { LiveCreative } from "@/lib/creativeAggregator";

@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
-import { DataBadge } from "@/components/ui/data-badge";
 import { DataBlur } from "@/components/ui/data-blur";
 import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
@@ -21,7 +20,6 @@ import {
   CPL_STATUS_COLORS,
   filterValidConversions,
   aggregateByLeadType,
-  type LeadType,
   type LeadTypeBreakdown,
 } from "@/lib/ministry-config";
 import {
@@ -571,7 +569,6 @@ export default function MinistryOverview() {
             {orderedLeadTypes.map((lt) => {
               const bd = leadTypeBreakdown[lt.id];
               const convCount = bd?.conversions ?? 0;
-              const ltSpend = bd?.spend ?? 0;
               const cpl = bd?.cpl ?? 0;
               const status = getCplStatus(cpl, lt);
               const statusColors = CPL_STATUS_COLORS[status];
