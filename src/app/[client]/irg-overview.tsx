@@ -23,6 +23,7 @@ import {
   type IrgBrandId,
 } from "@/lib/irg-brands";
 import { formatCurrency, formatNumber, formatROAS, cn } from "@/lib/utils";
+import { MetricCell } from "@/components/ui/metric-cell";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
   DollarSign, Target, Eye, MousePointer, Percent,
@@ -615,7 +616,7 @@ export default function IrgOverview() {
             </h2>
             <span className="text-[11px] text-[#64748B]">{campaigns.length} campaign{campaigns.length !== 1 ? "s" : ""}</span>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-left min-w-[800px]">
               <thead>
                 <tr className="border-b border-white/[0.04]">
@@ -678,6 +679,61 @@ export default function IrgOverview() {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="lg:hidden p-3 space-y-2">
+            {campaigns.length === 0 ? (
+              <div className="p-6 text-center text-sm text-[#64748B]">
+                No campaign data available for this period.
+              </div>
+            ) : (
+              campaigns.map((c, i) => (
+                <div
+                  key={`${c.name}-${i}`}
+                  className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-white truncate">{c.name}</p>
+                      {c.isPreexisting && (
+                        <span className="text-[9px] text-amber-400/70">IRG-managed</span>
+                      )}
+                    </div>
+                    <span className={cn(
+                      "px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase flex-shrink-0",
+                      c.platform === "Meta" ? "bg-blue-500/20 text-blue-400" : "bg-emerald-500/20 text-emerald-400",
+                    )}>
+                      {c.platform}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[10px]">
+                    <span className="flex items-center gap-1 text-[#94A3B8]">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: IRG_BRANDS[c.brand]?.color || "#94A3B8" }} />
+                      {IRG_BRANDS[c.brand]?.shortLabel || "?"}
+                    </span>
+                    <span className={cn(
+                      "flex items-center gap-1 font-medium",
+                      c.status === "Live" && "text-[#22C55E]",
+                      c.status === "Paused" && "text-amber-400",
+                      c.status === "Draft" && "text-[#64748B]",
+                    )}>
+                      {c.status === "Live" && <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse" />}
+                      {c.status}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                    <MetricCell label="Spend" value={formatCurrency(c.spend, "EUR")} emphasis />
+                    <MetricCell label="Impr" value={formatNumber(c.impressions)} />
+                    <MetricCell label="Clicks" value={formatNumber(c.clicks)} />
+                    <MetricCell label="CTR" value={`${c.ctr.toFixed(2)}%`} />
+                    <MetricCell label="CPC" value={c.clicks > 0 ? formatCurrency(c.cpc, "EUR") : "—"} />
+                    <MetricCell label="Conv" value={c.conversions > 0 ? formatNumber(c.conversions) : "—"} emphasis />
+                    <MetricCell label="CPA" value={c.conversions > 0 ? formatCurrency(c.cpa, "EUR") : "—"} />
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
 

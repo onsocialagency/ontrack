@@ -16,6 +16,7 @@ import { VenueTabs } from "@/components/layout/venue-tabs";
 import { assignIrgBrand } from "@/lib/irg-brands";
 import type { WindsorRow } from "@/lib/windsor";
 import { formatCurrency, formatROAS, formatNumber, cn, getBillingPeriod } from "@/lib/utils";
+import { MetricCell } from "@/components/ui/metric-cell";
 import { DataBlur } from "@/components/ui/data-blur";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
@@ -631,7 +632,7 @@ export default function EcomPage() {
               Top Campaigns by Revenue
             </h2>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm min-w-[600px]">
               <thead>
                 <tr className="border-b border-white/[0.08]">
@@ -693,6 +694,39 @@ export default function EcomPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="lg:hidden p-3 space-y-2">
+            {topCampaigns.map((c) => (
+              <div
+                key={c.id}
+                className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-sm font-semibold text-white truncate flex-1 min-w-0">
+                    {c.name}
+                  </span>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase flex-shrink-0",
+                      c.platform === "meta"
+                        ? "bg-blue-500/20 text-blue-400"
+                        : "bg-emerald-500/20 text-emerald-400",
+                    )}
+                  >
+                    {c.platform === "meta" ? <MetaIcon className="w-3 h-3" /> : <GoogleIcon className="w-3 h-3" />}
+                    {c.platform}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                  <MetricCell label="Spend" value={formatCurrency(c.spend, client.currency)} />
+                  <MetricCell label="Rev" value={formatCurrency(c.revenue, client.currency)} emphasis />
+                  <MetricCell label="ROAS" value={formatROAS(c.roas)} emphasis />
+                  <MetricCell label="Conv" value={formatNumber(c.conversions)} />
+                </div>
+              </div>
+            ))}
           </div>
         </section>
         </DataBlur>

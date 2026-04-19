@@ -25,6 +25,7 @@ import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-m
 import { formatCurrency, formatROAS, formatNumber, cn } from "@/lib/utils";
 import type { CampaignRow } from "@/lib/types";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
+import { MetricCell } from "@/components/ui/metric-cell";
 import {
   TrendingUp,
   BarChart3,
@@ -274,6 +275,225 @@ function exportCSV(rows: (LiveCampaign | CampaignRow)[]) {
   a.download = "campaigns.csv";
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/* ── Mobile campaign card (used in attribution mobile view) ── */
+
+interface MobileCampaignCardProps {
+  row: LiveCampaign | CampaignRow;
+  client: { currency: string };
+  isLive: boolean;
+  isLeadGen: boolean;
+  creativeData: WindsorRow[] | null | undefined;
+  expandedCampaigns: Set<string>;
+  toggleCampaign: (id: string) => void;
+  expandedAdSets: Set<string>;
+  toggleAdSet: (id: string) => void;
+  allMockCampaigns: CampaignRow[];
+  getAdjustedConversions: (row: LiveCampaign | CampaignRow | AdSetRow) => number;
+  router: ReturnType<typeof useRouter>;
+  clientSlug: string;
+}
+
+function MobileCampaignCard({
+  row,
+  client,
+  isLive,
+  isLeadGen,
+  creativeData,
+  expandedCampaigns,
+  toggleCampaign,
+  expandedAdSets,
+  toggleAdSet,
+  allMockCampaigns,
+  getAdjustedConversions,
+  router,
+  clientSlug,
+}: MobileCampaignCardProps) {
+  const hasLiveExpand = isLive && !!creativeData;
+  const isCampaignExpanded = expandedCampaigns.has(row.id);
+  const hasChildren = !isLive && allMockCampaigns.some((c) => c.parentId === row.id);
+  const canExpand = hasLiveExpand || hasChildren;
+  const mockChildren = isCampaignExpanded && !isLive ? allMockCampaigns.filter((c) => c.parentId === row.id) : [];
+  const status = isLive && "status" in row ? (row as LiveCampaign).status : "live";
+
+  const adSets = isCampaignExpanded && hasLiveExpand && creativeData
+    ? aggregateAdSets(creativeData, row.name)
+    : [];
+
+  // If no ad set data but we have ads, render ads directly
+  const directAds = isCampaignExpanded && hasLiveExpand && creativeData && adSets.length === 0
+    ? aggregateAds(creativeData, row.name)
+    : [];
+
+  return (
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] overflow-hidden">
+      <div
+        className={cn(
+          "p-3 space-y-2",
+          canExpand && "cursor-pointer",
+        )}
+        onClick={() => canExpand && toggleCampaign(row.id)}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Circle size={8} className={cn("flex-shrink-0 fill-current", STATUS_COLORS[status])} />
+            {canExpand && (
+              isCampaignExpanded ? (
+                <ChevronDown size={12} className="text-[#94A3B8] flex-shrink-0" />
+              ) : (
+                <ChevronRight size={12} className="text-[#94A3B8] flex-shrink-0" />
+              )
+            )}
+            <span className="text-sm font-semibold text-white truncate">{row.name}</span>
+          </div>
+          <span className={cn(
+            "px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase flex-shrink-0",
+            row.platform === "meta" ? "bg-blue-500/20 text-blue-400" : "bg-emerald-500/20 text-emerald-400",
+          )}>
+            {row.platform}
+          </span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+          <MetricCell label="Spend" value={formatCurrency(row.spend, client.currency)} emphasis />
+          <MetricCell label="Impr" value={formatNumber(row.impressions)} />
+          <MetricCell label="Clicks" value={formatNumber(row.clicks)} />
+          <MetricCell label="CTR" value={`${row.ctr.toFixed(2)}%`} />
+          <MetricCell label="CPC" value={formatCurrency(row.cpc, client.currency)} />
+          <MetricCell label="CPM" value={formatCurrency(row.cpm, client.currency)} />
+          <MetricCell label="Conv" value={formatNumber(row.conversions)} emphasis />
+          <MetricCell label="Adj Cv" value={formatNumber(getAdjustedConversions(row))} />
+          <MetricCell
+            label={isLeadGen && "cpl" in row && row.cpl !== undefined ? "CPL" : "ROAS"}
+            value={
+              isLeadGen && "cpl" in row && row.cpl !== undefined
+                ? formatCurrency(row.cpl, client.currency)
+                : formatROAS(row.roas)
+            }
+            emphasis
+          />
+        </div>
+      </div>
+
+      {/* Live ad-set drill-down */}
+      {isCampaignExpanded && adSets.length > 0 && (
+        <div className="px-2 pb-2 space-y-2 bg-white/[0.02]">
+          {adSets.map((adSet) => {
+            const isAdSetExpanded = expandedAdSets.has(adSet.id);
+            const ads = isAdSetExpanded && creativeData ? aggregateAds(creativeData, row.name, adSet.name) : [];
+            return (
+              <div key={`adset-${adSet.id}`} className="rounded-lg border border-white/[0.04] bg-white/[0.02] overflow-hidden">
+                <div
+                  className="p-2.5 space-y-2 cursor-pointer"
+                  onClick={() => toggleAdSet(adSet.id)}
+                >
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    {isAdSetExpanded ? (
+                      <ChevronDown size={12} className="text-[#94A3B8] flex-shrink-0" />
+                    ) : (
+                      <ChevronRight size={12} className="text-[#94A3B8] flex-shrink-0" />
+                    )}
+                    <span className="text-xs font-medium text-[#E2E8F0] truncate">{adSet.name}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                    <MetricCell label="Spend" value={formatCurrency(adSet.spend, client.currency)} />
+                    <MetricCell label="Impr" value={formatNumber(adSet.impressions)} />
+                    <MetricCell label="Clicks" value={formatNumber(adSet.clicks)} />
+                    <MetricCell label="CTR" value={`${adSet.ctr.toFixed(2)}%`} />
+                    <MetricCell label="CPC" value={formatCurrency(adSet.cpc, client.currency)} />
+                    <MetricCell label="CPM" value={formatCurrency(adSet.cpm, client.currency)} />
+                    <MetricCell label="Conv" value={formatNumber(adSet.conversions)} />
+                    <MetricCell label="CPA" value={formatCurrency(adSet.cpa, client.currency)} />
+                    <MetricCell label="ROAS" value={formatROAS(adSet.roas)} />
+                  </div>
+                </div>
+                {isAdSetExpanded && ads.length > 0 && (
+                  <div className="px-2 pb-2 space-y-1.5 bg-white/[0.02]">
+                    {ads.map((ad) => (
+                      <div
+                        key={`ad-${ad.id}`}
+                        className="rounded-md border border-white/[0.03] bg-white/[0.02] p-2 space-y-1.5"
+                      >
+                        <button
+                          type="button"
+                          onClick={() => router.push(`/${clientSlug}/creative-lab?search=${encodeURIComponent(ad.name)}`)}
+                          className="block w-full text-left text-[11px] text-[#94A3B8] hover:text-[#FF6A41] truncate transition-colors"
+                          title="View in Creative Lab"
+                        >
+                          {ad.name}
+                        </button>
+                        <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-white/[0.03]">
+                          <MetricCell label="Spend" value={formatCurrency(ad.spend, client.currency)} />
+                          <MetricCell label="Impr" value={formatNumber(ad.impressions)} />
+                          <MetricCell label="CTR" value={`${ad.ctr.toFixed(2)}%`} />
+                          <MetricCell label="Conv" value={formatNumber(ad.conversions)} />
+                          <MetricCell label="CPA" value={formatCurrency(ad.cpa, client.currency)} />
+                          <MetricCell label="ROAS" value={formatROAS(ad.roas)} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Direct ads when no ad sets */}
+      {isCampaignExpanded && directAds.length > 0 && (
+        <div className="px-2 pb-2 space-y-1.5 bg-white/[0.02]">
+          {directAds.map((ad) => (
+            <div
+              key={`ad-${ad.id}`}
+              className="rounded-md border border-white/[0.03] bg-white/[0.02] p-2 space-y-1.5"
+            >
+              <button
+                type="button"
+                onClick={() => router.push(`/${clientSlug}/creative-lab?search=${encodeURIComponent(ad.name)}`)}
+                className="block w-full text-left text-[11px] text-[#94A3B8] hover:text-[#FF6A41] truncate transition-colors"
+              >
+                {ad.name}
+              </button>
+              <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-white/[0.03]">
+                <MetricCell label="Spend" value={formatCurrency(ad.spend, client.currency)} />
+                <MetricCell label="Impr" value={formatNumber(ad.impressions)} />
+                <MetricCell label="CTR" value={`${ad.ctr.toFixed(2)}%`} />
+                <MetricCell label="Conv" value={formatNumber(ad.conversions)} />
+                <MetricCell label="CPA" value={formatCurrency(ad.cpa, client.currency)} />
+                <MetricCell label="ROAS" value={formatROAS(ad.roas)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Mock children drill-down */}
+      {isCampaignExpanded && mockChildren.length > 0 && (
+        <div className="px-2 pb-2 space-y-2 bg-white/[0.02]">
+          {mockChildren.map((child) => (
+            <div
+              key={child.id}
+              className="rounded-lg border border-white/[0.04] bg-white/[0.02] p-2.5 space-y-2"
+            >
+              <span className="text-xs font-medium text-[#E2E8F0] truncate block">{child.name}</span>
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                <MetricCell label="Spend" value={formatCurrency(child.spend, client.currency)} />
+                <MetricCell label="Impr" value={formatNumber(child.impressions)} />
+                <MetricCell label="Clicks" value={formatNumber(child.clicks)} />
+                <MetricCell label="CTR" value={`${child.ctr.toFixed(2)}%`} />
+                <MetricCell label="CPC" value={formatCurrency(child.cpc, client.currency)} />
+                <MetricCell label="CPM" value={formatCurrency(child.cpm, client.currency)} />
+                <MetricCell label="Conv" value={formatNumber(child.conversions)} />
+                <MetricCell label="CPA" value={formatCurrency(child.cpa, client.currency)} />
+                <MetricCell label="ROAS" value={formatROAS(child.roas)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ── Page ── */
@@ -900,7 +1120,8 @@ export default function AttributionPage() {
                   </button>
                 </div>
 
-                <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl overflow-hidden">
+                {/* Desktop table — hidden on mobile */}
+                <div className="hidden lg:block bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm min-w-[700px]">
                       <thead>
@@ -990,6 +1211,111 @@ export default function AttributionPage() {
                       )}
                     </table>
                   </div>
+                </div>
+
+                {/* Mobile cards — hidden on desktop */}
+                <div className="lg:hidden space-y-3">
+                  {channelRows.map((ch) => {
+                    const isChannelExpanded = expandedChannels.has(ch.platform);
+                    const chCtr = ch.impressions > 0 ? ((ch.clicks / ch.impressions) * 100) : 0;
+                    const chCpc = ch.clicks > 0 ? ch.spend / ch.clicks : 0;
+                    const chCpm = ch.impressions > 0 ? (ch.spend / ch.impressions) * 1000 : 0;
+                    const chCpa = ch.conversions > 0 ? ch.spend / ch.conversions : 0;
+
+                    return (
+                      <div
+                        key={ch.platform}
+                        className="bg-white/[0.04] border border-white/[0.06] rounded-xl overflow-hidden"
+                      >
+                        {/* Channel header */}
+                        <button
+                          type="button"
+                          onClick={() => toggleChannel(ch.platform)}
+                          className="w-full flex items-center justify-between gap-2 p-3 hover:bg-white/[0.02] transition-colors"
+                        >
+                          <div className="flex items-center gap-2 min-w-0 flex-1">
+                            {isChannelExpanded ? (
+                              <ChevronDown size={14} className="text-[#94A3B8] flex-shrink-0" />
+                            ) : (
+                              <ChevronRight size={14} className="text-[#94A3B8] flex-shrink-0" />
+                            )}
+                            {ch.icon}
+                            <span className="text-sm font-bold text-white truncate">{ch.name}</span>
+                            <span className="text-[10px] text-[#64748B] flex-shrink-0">
+                              {ch.campaigns.length}
+                            </span>
+                          </div>
+                          <span className="text-sm font-bold text-white flex-shrink-0">
+                            {formatCurrency(ch.spend, client.currency)}
+                          </span>
+                        </button>
+
+                        {/* Channel metrics grid */}
+                        <div className="grid grid-cols-3 gap-2 px-3 pb-3 pt-1 border-t border-white/[0.04]">
+                          <MetricCell label="Impr" value={formatNumber(ch.impressions)} />
+                          <MetricCell label="Clicks" value={formatNumber(ch.clicks)} />
+                          <MetricCell label="CTR" value={`${chCtr.toFixed(2)}%`} />
+                          <MetricCell label="CPC" value={formatCurrency(chCpc, client.currency)} />
+                          <MetricCell label="CPM" value={formatCurrency(chCpm, client.currency)} />
+                          <MetricCell label="Conv" value={formatNumber(ch.conversions)} emphasis />
+                          <MetricCell label="Adj Cv" value={formatNumber(ch.conversions)} />
+                          <MetricCell label="CPA" value={chCpa > 0 ? formatCurrency(chCpa, client.currency) : "—"} />
+                          <MetricCell
+                            label={isLeadGen ? "CPL" : "ROAS"}
+                            value={formatROAS(ch.roas)}
+                            emphasis
+                          />
+                        </div>
+
+                        {/* Nested campaign cards */}
+                        {isChannelExpanded && ch.campaigns.length > 0 && (
+                          <div className="px-2 pb-2 space-y-2 bg-white/[0.01]">
+                            {ch.campaigns.map((campaign) => (
+                              <MobileCampaignCard
+                                key={campaign.id}
+                                row={campaign}
+                                client={client}
+                                isLive={!!isLive}
+                                isLeadGen={isLeadGen}
+                                creativeData={creativeData}
+                                expandedCampaigns={expandedCampaigns}
+                                toggleCampaign={toggleCampaign}
+                                expandedAdSets={expandedAdSets}
+                                toggleAdSet={toggleAdSet}
+                                allMockCampaigns={allMockCampaigns}
+                                getAdjustedConversions={getAdjustedConversions}
+                                router={router}
+                                clientSlug={clientSlug}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Mobile totals */}
+                  {filtered.length > 0 && (
+                    <div className="bg-white/[0.05] border border-white/[0.10] rounded-xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-bold text-white">
+                          Total ({campaignTotals.count})
+                        </span>
+                        <span className="text-sm font-bold text-white">
+                          {formatCurrency(campaignTotals.spend, client.currency)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.06]">
+                        <MetricCell label="Conv" value={formatNumber(campaignTotals.conversions)} emphasis />
+                        <MetricCell label="Adj Cv" value={formatNumber(adjTotalConversions)} emphasis />
+                        <MetricCell
+                          label={isLeadGen ? "CPL" : "ROAS"}
+                          value={formatROAS(campaignTotals.roas)}
+                          emphasis
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             );

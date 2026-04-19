@@ -9,6 +9,7 @@ import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
+import { MetricCell } from "@/components/ui/metric-cell";
 import {
   LEAD_TYPES,
   MINISTRY_BRAND,
@@ -208,7 +209,7 @@ export default function CrmReconciliationPage() {
             </p>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm min-w-[600px]">
               <thead>
                 <tr className="border-b border-white/[0.06]">
@@ -313,6 +314,58 @@ export default function CrmReconciliationPage() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile reconciliation cards */}
+          <div className="lg:hidden p-3 space-y-2">
+            {campaigns.map((campaign) => (
+              <div
+                key={campaign.name}
+                className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-sm font-semibold text-white truncate flex-1 min-w-0">
+                    {campaign.name}
+                  </span>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase flex-shrink-0",
+                      campaign.platform === "meta"
+                        ? "bg-blue-500/20 text-blue-400"
+                        : "bg-emerald-500/20 text-emerald-400",
+                    )}
+                  >
+                    {campaign.platform === "meta" ? (
+                      <MetaIcon className="w-3 h-3" />
+                    ) : (
+                      <GoogleIcon className="w-3 h-3" />
+                    )}
+                    {campaign.platform === "meta" ? "Meta" : "Google"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                  <MetricCell
+                    label="Meta"
+                    value={campaign.platform === "meta" ? formatNumber(campaign.conversions) : "—"}
+                    emphasis={campaign.platform === "meta"}
+                  />
+                  <MetricCell
+                    label="Google"
+                    value={campaign.platform === "google" ? formatNumber(campaign.conversions) : "—"}
+                    emphasis={campaign.platform === "google"}
+                  />
+                  <MetricCell label="HubSpot" value="—" />
+                </div>
+              </div>
+            ))}
+            <div className="rounded-xl border border-white/[0.10] bg-white/[0.05] p-3 space-y-2">
+              <span className="text-sm font-bold text-white">Total</span>
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.06]">
+                <MetricCell label="Meta" value={formatNumber(metaConversions)} emphasis />
+                <MetricCell label="Google" value={formatNumber(googleConversions)} emphasis />
+                <MetricCell label="HubSpot" value="—" />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* ── Lead Type Breakdown ── */}
@@ -321,7 +374,7 @@ export default function CrmReconciliationPage() {
             <h2 className="text-lg font-semibold text-white">Lead Type Performance vs Targets</h2>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm min-w-[600px]">
               <thead>
                 <tr className="border-b border-white/[0.06]">
@@ -412,6 +465,67 @@ export default function CrmReconciliationPage() {
                 })}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile lead type cards */}
+          <div className="lg:hidden p-3 space-y-2">
+            {LEAD_TYPES.map((leadType) => {
+              const breakdown = leadTypeBreakdown[leadType.id];
+              const conversions = breakdown?.conversions ?? 0;
+              const spend = breakdown?.spend ?? 0;
+              const cpl = conversions > 0 ? spend / conversions : 0;
+              const hasData = conversions > 0;
+              const status = hasData ? getCplStatus(cpl, leadType) : "no_target";
+              const statusStyle = CPL_STATUS_COLORS[status];
+
+              const targetLabel =
+                leadType.targetCplMin !== null && leadType.targetCplMax !== null
+                  ? `${formatCurrency(leadType.targetCplMin, currency)}\u2013${formatCurrency(leadType.targetCplMax, currency)}`
+                  : "No target";
+
+              return (
+                <div
+                  key={leadType.id}
+                  className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-sm font-semibold text-white truncate block">
+                        {leadType.label}
+                      </span>
+                      {hasData && breakdown.campaigns.length > 0 && (
+                        <span className="text-[10px] text-[#94A3B8]/50 block mt-0.5">
+                          {breakdown.campaigns.length} campaign{breakdown.campaigns.length !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold flex-shrink-0",
+                        statusStyle.bg,
+                        statusStyle.text,
+                      )}
+                    >
+                      {statusStyle.label}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-[#94A3B8]/60">Target: {targetLabel}</p>
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                    <MetricCell
+                      label="Conv"
+                      value={hasData ? formatNumber(conversions) : "—"}
+                      emphasis={hasData}
+                    />
+                    <MetricCell
+                      label="CPL"
+                      value={hasData ? formatCurrency(cpl, currency) : "—"}
+                      emphasis={hasData}
+                    />
+                    <MetricCell label="CRM" value="—" />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

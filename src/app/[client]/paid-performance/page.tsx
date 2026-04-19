@@ -11,6 +11,7 @@ import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
+import { MetricCell } from "@/components/ui/metric-cell";
 import {
   LEAD_TYPES,
   CHANNEL_ROLES,
@@ -677,8 +678,8 @@ export default function PaidPerformancePage() {
           </div>
         </div>
 
-        {/* ── Campaign Table ── */}
-        <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl overflow-hidden">
+        {/* ── Campaign Table (desktop only) ── */}
+        <div className="hidden lg:block bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[700px]">
               <thead>
@@ -768,6 +769,153 @@ export default function PaidPerformancePage() {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* ── Campaign Cards (mobile only) ── */}
+        <div className="lg:hidden space-y-2">
+          {campaignRows.map((row) => {
+            const isExpanded = expandedCampaigns.has(row.key);
+            const adsets = adsetMap[row.key] || [];
+            const role = getChannelRole(row.campaign);
+            const roleColor = role ? (ROLE_COLORS[role.id] || "#94A3B8") : null;
+            const isMeta = row.source === "facebook" || row.source === "meta" || row.source === "instagram";
+
+            return (
+              <div key={row.key} className="rounded-xl border border-white/[0.06] bg-white/[0.04] overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleCampaign(row.key)}
+                  className="w-full text-left p-3 space-y-2 hover:bg-white/[0.02] transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
+                      {isExpanded ? (
+                        <ChevronDown size={14} style={{ color: accent }} className="flex-shrink-0" />
+                      ) : (
+                        <ChevronRight size={14} className="text-[#94A3B8] flex-shrink-0" />
+                      )}
+                      <span className="text-sm font-semibold text-white truncate">{row.campaign}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={cn(
+                      "inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider",
+                      isMeta ? "bg-blue-500/20 text-blue-400" : "bg-emerald-500/20 text-emerald-400",
+                    )}>
+                      {isMeta ? "Meta" : "Google"}
+                    </span>
+                    {role && roleColor && (
+                      <span
+                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wider"
+                        style={{ backgroundColor: `${roleColor}20`, color: roleColor }}
+                      >
+                        {role.label}
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                    <MetricCell label="Spend" value={formatCurrency(row.spend, client.currency)} emphasis />
+                    <MetricCell label="Impr" value={formatNumber(row.impressions)} />
+                    <MetricCell label="CTR" value={`${row.ctr.toFixed(2)}%`} />
+                    <MetricCell label="CPC" value={formatCurrency(row.cpc, client.currency)} />
+                    <MetricCell label="CPM" value={formatCurrency(row.cpm, client.currency)} />
+                    <MetricCell label="Conv" value={formatNumber(row.conversions)} emphasis />
+                    <MetricCell label="CPL" value={formatCurrency(row.cpl, client.currency)} emphasis />
+                  </div>
+                </button>
+
+                {isExpanded && adsets.length > 0 && (
+                  <div className="px-2 pb-2 space-y-2 bg-white/[0.02]">
+                    {adsets.map((adsetRow) => {
+                      const adsetKey = `${adsetRow.campaign}||${adsetRow.source}||${adsetRow.adset}`;
+                      const isAdsetExpanded = expandedAdSets.has(adsetKey);
+                      const ads = adMap[adsetKey] || [];
+                      return (
+                        <div key={adsetRow.key} className="rounded-lg border border-white/[0.04] bg-white/[0.02] overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={() => toggleAdSet(adsetKey)}
+                            className="w-full text-left p-2.5 space-y-2 hover:bg-white/[0.03] transition-colors"
+                          >
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              {isAdsetExpanded ? (
+                                <ChevronDown size={12} style={{ color: accent }} className="flex-shrink-0" />
+                              ) : (
+                                <ChevronRight size={12} className="text-[#94A3B8] flex-shrink-0" />
+                              )}
+                              <span className="text-xs font-medium text-[#E2E8F0] truncate">
+                                {adsetRow.adset || "(no ad set)"}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-white/[0.04]">
+                              <MetricCell label="Spend" value={formatCurrency(adsetRow.spend, client.currency)} />
+                              <MetricCell label="Impr" value={formatNumber(adsetRow.impressions)} />
+                              <MetricCell label="CTR" value={`${adsetRow.ctr.toFixed(2)}%`} />
+                              <MetricCell label="CPC" value={formatCurrency(adsetRow.cpc, client.currency)} />
+                              <MetricCell label="Conv" value={formatNumber(adsetRow.conversions)} />
+                              <MetricCell label="CPL" value={formatCurrency(adsetRow.cpl, client.currency)} />
+                            </div>
+                          </button>
+                          {isAdsetExpanded && ads.length > 0 && (
+                            <div className="px-2 pb-2 space-y-1.5 bg-white/[0.02]">
+                              {ads.map((adRow) => (
+                                <div
+                                  key={adRow.key}
+                                  className="rounded-md border border-white/[0.03] bg-white/[0.02] p-2 space-y-1.5"
+                                >
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    {adRow.thumbnail_url ? (
+                                      <Image
+                                        src={adRow.thumbnail_url}
+                                        alt=""
+                                        width={24}
+                                        height={24}
+                                        className="rounded object-cover flex-shrink-0"
+                                        unoptimized
+                                      />
+                                    ) : (
+                                      <div className="w-6 h-6 rounded bg-white/[0.06] flex-shrink-0" />
+                                    )}
+                                    <span className="text-[11px] text-[#94A3B8] truncate">
+                                      {adRow.ad_name || "(no ad)"}
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-3 gap-2 pt-1.5 border-t border-white/[0.03]">
+                                    <MetricCell label="Spend" value={formatCurrency(adRow.spend, client.currency)} />
+                                    <MetricCell label="Impr" value={formatNumber(adRow.impressions)} />
+                                    <MetricCell label="CTR" value={`${adRow.ctr.toFixed(2)}%`} />
+                                    <MetricCell label="Conv" value={formatNumber(adRow.conversions)} />
+                                    <MetricCell label="CPL" value={formatCurrency(adRow.cpl, client.currency)} />
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {campaignRows.length > 0 && (
+            <div className="rounded-xl border border-white/[0.10] bg-white/[0.05] p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-bold text-white">Total</span>
+                <span className="text-sm font-bold text-white">
+                  {formatCurrency(totals.spend, client.currency)}
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.06]">
+                <MetricCell label="Impr" value={formatNumber(totals.impressions)} emphasis />
+                <MetricCell label="CTR" value={`${totals.ctr.toFixed(2)}%`} />
+                <MetricCell label="Conv" value={formatNumber(totals.conversions)} emphasis />
+                <MetricCell label="CPL" value={formatCurrency(totals.cpl, client.currency)} emphasis />
+              </div>
+            </div>
+          )}
         </div>
 
         {/* ── Platform Reported Context Note ── */}

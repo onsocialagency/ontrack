@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { Search } from "lucide-react";
 import { cn, formatCurrency, formatROAS } from "@/lib/utils";
+import { MetricCell as MobileMetricCell } from "@/components/ui/metric-cell";
 import { PillToggle } from "@/components/ui/pill-toggle";
 import type { WindsorRow } from "@/lib/windsor";
 import type { LiveCreative } from "@/lib/creativeAggregator";
@@ -412,7 +413,7 @@ function HeadlinesTab({ headlines, searchQuery, currency }: { headlines: ParsedH
           Headlines are extracted from your Responsive Search Ads. Google dynamically combines these to find the best performing combinations.
         </p>
       </div>
-      <div className="overflow-x-auto">
+      <div className="hidden lg:block overflow-x-auto">
         <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="border-b border-white/[0.08]">
@@ -446,6 +447,39 @@ function HeadlinesTab({ headlines, searchQuery, currency }: { headlines: ParsedH
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="lg:hidden p-3 space-y-2">
+        {filtered.map((h, i) => {
+          const ctr = h.impressions > 0 ? (h.clicks / h.impressions) * 100 : 0;
+          return (
+            <div
+              key={`${h.text}-${i}`}
+              className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+            >
+              <p className="text-sm font-medium text-[#8AB4F8]">{h.text}</p>
+              <p className="text-[10px] text-[#64748B] truncate">{h.campaign}</p>
+              <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                <MobileMetricCell label="Impr" value={h.impressions.toLocaleString()} />
+                <MobileMetricCell label="Clicks" value={h.clicks.toLocaleString()} emphasis />
+                <div className="min-w-0">
+                  <p className="text-[9px] text-[#8192A6] uppercase tracking-wider truncate">CTR</p>
+                  <p
+                    className={cn(
+                      "text-[12px] font-semibold truncate",
+                      ctr >= 5 ? "text-emerald-400" : ctr >= 3 ? "text-amber-400" : "text-red-400",
+                    )}
+                  >
+                    {ctr.toFixed(2)}%
+                  </p>
+                </div>
+                <MobileMetricCell label="Conv" value={String(h.conversions)} emphasis />
+                <MobileMetricCell label="Spend" value={formatCurrency(h.spend, currency)} emphasis />
+              </div>
+            </div>
+          );
+        })}
       </div>
     </section>
   );
@@ -496,7 +530,7 @@ function KeywordsTab({ keywords, searchQuery, currency }: { keywords: KeywordRow
       />
 
       <section className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="hidden lg:block overflow-x-auto">
           <table className="w-full text-sm min-w-[700px]">
             <thead>
               <tr className="border-b border-white/[0.08]">
@@ -546,6 +580,59 @@ function KeywordsTab({ keywords, searchQuery, currency }: { keywords: KeywordRow
             </tbody>
           </table>
         </div>
+
+        {/* Mobile cards */}
+        <div className="lg:hidden p-3 space-y-2">
+          {filtered.map((k, i) => {
+            const matchConfig = MATCH_TYPE_CONFIG[k.matchType] || { label: k.matchType || "—", color: "bg-white/[0.06] text-[#94A3B8]" };
+            const ctr = k.impressions > 0 ? (k.clicks / k.impressions) * 100 : 0;
+            const cpa = k.conversions > 0 ? k.spend / k.conversions : 0;
+            const roas = k.spend > 0 ? k.revenue / k.spend : 0;
+            return (
+              <div
+                key={`${k.keyword}-${i}`}
+                className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-emerald-400 truncate flex-1 min-w-0">{k.keyword}</p>
+                  <span className={cn("px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase flex-shrink-0", matchConfig.color)}>
+                    {matchConfig.label}
+                  </span>
+                </div>
+                <p className="text-[10px] text-[#64748B] truncate">{k.campaign}</p>
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
+                  <MobileMetricCell label="Spend" value={formatCurrency(k.spend, currency)} emphasis />
+                  <MobileMetricCell label="Clicks" value={k.clicks.toLocaleString()} />
+                  <div className="min-w-0">
+                    <p className="text-[9px] text-[#8192A6] uppercase tracking-wider truncate">CTR</p>
+                    <p
+                      className={cn(
+                        "text-[12px] font-semibold truncate",
+                        ctr >= 5 ? "text-emerald-400" : ctr >= 3 ? "text-amber-400" : "text-red-400",
+                      )}
+                    >
+                      {ctr.toFixed(2)}%
+                    </p>
+                  </div>
+                  <MobileMetricCell label="Conv" value={String(k.conversions)} emphasis />
+                  <MobileMetricCell label="CPA" value={cpa > 0 ? formatCurrency(cpa, currency) : "—"} />
+                  <div className="min-w-0">
+                    <p className="text-[9px] text-[#8192A6] uppercase tracking-wider truncate">ROAS</p>
+                    <p
+                      className={cn(
+                        "text-[12px] font-semibold truncate",
+                        roas >= 3 ? "text-emerald-400" : roas >= 1 ? "text-amber-400" : roas > 0 ? "text-red-400" : "text-[#64748B]",
+                      )}
+                    >
+                      {roas > 0 ? formatROAS(roas) : "—"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
         {filtered.length === 0 && (
           <div className="p-6 text-center text-xs text-[#94A3B8]">No keywords match the selected filters.</div>
         )}

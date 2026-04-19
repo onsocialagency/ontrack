@@ -39,7 +39,7 @@ export function TestTracker({ tests }: TestTrackerProps) {
         <h3 className="text-sm font-semibold text-white">A/B Test Tracker</h3>
         <span className="text-[10px] text-[#64748B]">{tests.length} test{tests.length !== 1 ? "s" : ""}</span>
       </div>
-      <div className="overflow-x-auto">
+      <div className="hidden lg:block overflow-x-auto">
         <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="border-b border-white/[0.08]">
@@ -80,6 +80,51 @@ export function TestTracker({ tests }: TestTrackerProps) {
             })}
           </tbody>
         </table>
+      </div>
+
+      {/* Mobile cards */}
+      <div className="lg:hidden p-3 space-y-2">
+        {tests.map((test) => {
+          const status = STATUS_CONFIG[test.status];
+          return (
+            <div
+              key={test.id}
+              className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-xs text-white line-clamp-3 flex-1 min-w-0">{test.hypothesis}</p>
+                <span className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-semibold flex-shrink-0", status.bg, status.color)}>
+                  {status.icon}
+                  {status.label}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/[0.04]">
+                <div className="min-w-0">
+                  <p className="text-[9px] text-[#8192A6] uppercase tracking-wider truncate">Creative A</p>
+                  <p className="text-[11px] text-[#94A3B8] font-mono truncate">{test.creativeA}</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] text-[#8192A6] uppercase tracking-wider truncate">Creative B</p>
+                  <p className="text-[11px] text-[#94A3B8] font-mono truncate">{test.creativeB}</p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] text-[#8192A6] uppercase tracking-wider truncate">Winner</p>
+                  <p className="text-[11px] font-medium truncate">
+                    {test.winner ? (
+                      <span className="text-emerald-400">{test.winner}</span>
+                    ) : (
+                      <span className="text-[#64748B]">—</span>
+                    )}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] text-[#8192A6] uppercase tracking-wider truncate">Week</p>
+                  <p className="text-[11px] text-[#94A3B8] truncate">{test.weekStarted}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

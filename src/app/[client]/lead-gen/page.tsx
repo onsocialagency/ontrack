@@ -8,6 +8,7 @@ import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-m
 import { getLeadFunnel, getClientKPIs, getClientCampaigns } from "@/lib/mock-data";
 import { useClient } from "@/lib/client-context";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
+import { MetricCell } from "@/components/ui/metric-cell";
 import { Target, DollarSign, TrendingUp, Zap } from "lucide-react";
 
 /* ── Page ── */
@@ -172,7 +173,7 @@ export default function LeadGenPage() {
               Lead Quality by Campaign
             </h2>
           </div>
-          <div className="overflow-x-auto">
+          <div className="hidden lg:block overflow-x-auto">
             <table className="w-full text-sm min-w-[500px]">
               <thead>
                 <tr className="border-b border-white/[0.08]">
@@ -217,6 +218,40 @@ export default function LeadGenPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="lg:hidden p-3 space-y-2">
+            {campaignQuality.map((cq) => (
+              <div
+                key={cq.name}
+                className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+              >
+                <span className="text-sm font-semibold text-white truncate block">
+                  {cq.name}
+                </span>
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/[0.04]">
+                  <MetricCell label="Conv" value={formatNumber(cq.conversions)} emphasis />
+                  <div className="min-w-0">
+                    <p className="text-[9px] text-[#8192A6] uppercase tracking-wider truncate">
+                      Qualified %
+                    </p>
+                    <p
+                      className={cn(
+                        "text-[12px] font-semibold truncate",
+                        cq.qualifiedPct >= 0.5
+                          ? "text-[#22C55E]"
+                          : cq.qualifiedPct >= 0.35
+                            ? "text-amber-400"
+                            : "text-[#EF4444]",
+                      )}
+                    >
+                      {(cq.qualifiedPct * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         </section>
       </div>
