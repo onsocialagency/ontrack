@@ -12,6 +12,21 @@ export interface Client {
   industry: string;
   currency: Currency;
   monthlyBudget: number;
+  /**
+   * How `monthlyBudget` should be interpreted:
+   *   "monthly"   — renews every month (default, fits most clients)
+   *   "seasonal"  — one lump-sum budget for an explicit calendar window
+   *                 (e.g. IRG's Mar–Oct hospitality season). The master
+   *                 dashboard and pacing widgets MUST honour this flag,
+   *                 otherwise they will multiply a seasonal total as if
+   *                 it renewed every month (8x over-report in IRG's case).
+   * Treat `undefined` as "monthly" for backward compatibility.
+   */
+  budgetPeriod?: "monthly" | "seasonal";
+  /** ISO date (YYYY-MM-DD) — start of the season window. Only meaningful when budgetPeriod === "seasonal". */
+  seasonStart?: string;
+  /** ISO date (YYYY-MM-DD) — inclusive end of the season window. Only meaningful when budgetPeriod === "seasonal". */
+  seasonEnd?: string;
   metaAllocation: number;
   googleAllocation: number;
   targetROAS: number;

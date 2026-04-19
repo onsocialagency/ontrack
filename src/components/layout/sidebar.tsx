@@ -118,6 +118,7 @@ function getClientNav(slug: string, clientType: ClientType): NavItem[] {
 
   if (clientType === "lead_gen" || clientType === "hybrid") {
     items.push({ label: "Lead Gen", href: `${base}/lead-gen`, icon: <Target size={20} /> });
+    items.push({ label: "CRM Reconciliation", href: `${base}/crm`, icon: <GitCompare size={20} /> });
   }
 
   if (clientType === "ecommerce" || clientType === "hybrid") {

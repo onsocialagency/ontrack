@@ -8,6 +8,7 @@ import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
+import { classifyPlatform } from "@/lib/windsor";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { MetricCell } from "@/components/ui/metric-cell";
 import {
@@ -51,7 +52,7 @@ function aggregateCampaigns(rows: WindsorRow[]): CampaignSummary[] {
   for (const row of rows) {
     const key = row.campaign;
     const existing = map.get(key);
-    const platform = row.source === "facebook" ? "meta" : "google";
+    const platform = classifyPlatform(row.source) === "meta" ? "meta" : "google";
     if (existing) {
       existing.conversions += row.conversions;
       existing.spend += row.spend;
@@ -117,6 +118,23 @@ export default function CrmReconciliationPage() {
   }, [campaigns]);
 
   if (!client) return null;
+
+  // Only render for lead_gen or hybrid clients — pipeline reconciliation is
+  // meaningless for pure ecommerce (no deal flow).
+  if (client.type !== "lead_gen" && client.type !== "hybrid") {
+    return (
+      <>
+        <Header title="CRM Reconciliation" showDateRange={false} />
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="bg-[#12121A] border border-white/[0.06] rounded-2xl p-8 text-center space-y-2">
+            <p className="text-sm text-[#94A3B8]">
+              CRM reconciliation is only available for lead-gen and hybrid clients.
+            </p>
+          </div>
+        </div>
+      </>
+    );
+  }
 
   const currency = client.currency ?? "GBP";
 

@@ -10,6 +10,7 @@ import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
+import { classifyPlatform, isMetaSource } from "@/lib/windsor";
 import {
   runAttribution,
   MODEL_NAMES,
@@ -137,7 +138,7 @@ function aggregateWindsorCampaigns(rows: WindsorRow[]): LiveCampaign[] {
     const campaign = r.campaign || "Unknown";
     const key = `${r.source}::${campaign}`;
     if (!byKey[key]) {
-      const platform = r.source === "facebook" ? "meta" : "google";
+      const platform = classifyPlatform(r.source) === "meta" ? "meta" : "google";
       byKey[key] = {
         id: key,
         name: campaign,
@@ -193,7 +194,7 @@ function aggregateAdSets(rows: WindsorRow[], campaignName: string): AdSetRow[] {
       byKey[key] = {
         id: key,
         name: key,
-        platform: r.source === "facebook" ? "meta" : "google",
+        platform: classifyPlatform(r.source) === "meta" ? "meta" : "google",
         spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0,
       };
     }
@@ -227,7 +228,7 @@ function aggregateAds(rows: WindsorRow[], campaignName: string, adSetName?: stri
       byKey[key] = {
         id: r.ad_id || key,
         name: key,
-        platform: r.source === "facebook" ? "meta" : "google",
+        platform: classifyPlatform(r.source) === "meta" ? "meta" : "google",
         spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0,
       };
     }
@@ -930,7 +931,7 @@ export default function AttributionPage() {
     <>
       <Header title="Attribution & Campaigns" showAttribution dataBadge={{ loading: windsorLoading, isLive: !!isLive }} filterRow={isIrg ? <VenueTabs /> : undefined} />
 
-      <div className="flex-1 p-3 sm:p-4 lg:p-6 overflow-y-auto">
+      <div className="flex-1 p-3 sm:p-4 lg:p-6 overflow-y-auto overflow-x-hidden min-w-0">
         <div className="space-y-4 sm:space-y-5">
 
           {/* ── Top bar: Model description ── */}
@@ -1038,7 +1039,7 @@ export default function AttributionPage() {
           {/* ── Channel & Campaign Table (merged) ── */}
           {(() => {
             // Channel-level aggregations
-            const metaRows2 = isLive ? (venueFilteredData || []).filter((r) => r.source === "facebook") : [];
+            const metaRows2 = isLive ? (venueFilteredData || []).filter((r) => isMetaSource(r.source)) : [];
             const googleRows2 = isLive ? (venueFilteredData || []).filter((r) => r.source !== "facebook") : [];
             const metaImpr = metaRows2.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
             const googleImpr = googleRows2.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
@@ -1086,9 +1087,9 @@ export default function AttributionPage() {
 
             return (
               <div className="space-y-2">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-sm font-semibold text-white whitespace-nowrap">Channel & Campaign Breakdown</h2>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
+                    <h2 className="text-sm font-semibold text-white">Channel &amp; Campaign Breakdown</h2>
                     <div className="flex items-center gap-1 bg-white/[0.04] rounded-lg p-0.5">
                       {PLATFORM_OPTIONS.map((opt) => (
                         <button

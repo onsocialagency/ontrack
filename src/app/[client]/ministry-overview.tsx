@@ -11,6 +11,7 @@ import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
+import { classifyPlatform } from "@/lib/windsor";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
@@ -40,9 +41,6 @@ import {
 
 /* ── Constants ── */
 
-const MONTHLY_BUDGET = 5000;
-const META_TARGET_PCT = 60;
-const GOOGLE_TARGET_PCT = 40;
 const ACCENT = MINISTRY_BRAND.accentColor; // #C8A96E
 
 /* ── Lead type display order ── */
@@ -139,10 +137,11 @@ function aggregateWindsor(rows: WindsorRow[]) {
   for (const r of filtered) {
     const spend = Number(r.spend) || 0;
     const conv = Number(r.conversions) || 0;
-    if (r.source === "facebook") {
+    const platform = classifyPlatform(r.source);
+    if (platform === "meta") {
       metaSpend += spend;
       metaConversions += conv;
-    } else if (r.source === "google_ads") {
+    } else if (platform === "google") {
       googleSpend += spend;
       googleConversions += conv;
     }
@@ -193,6 +192,11 @@ export default function MinistryOverview() {
   const { shortDate: fmtDate } = useLocale();
   const ctx = useClient();
   const client = ctx?.clientConfig;
+
+  // Budget + allocation targets read from client config (fallback to sensible defaults)
+  const MONTHLY_BUDGET = client?.monthlyBudget ?? 5000;
+  const META_TARGET_PCT = Math.round((client?.metaAllocation ?? 0.6) * 100);
+  const GOOGLE_TARGET_PCT = Math.round((client?.googleAllocation ?? 0.4) * 100);
 
   // Current period Windsor data
   const { data: windsorData, source: dataSource, loading: windsorLoading } = useWindsor<WindsorRow[]>({

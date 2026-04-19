@@ -15,6 +15,7 @@ import { useVenue } from "@/lib/venue-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { assignIrgBrand } from "@/lib/irg-brands";
 import type { WindsorRow } from "@/lib/windsor";
+import { classifyPlatform, isMetaSource } from "@/lib/windsor";
 import { formatCurrency, formatROAS, formatNumber, cn, getBillingPeriod } from "@/lib/utils";
 import { MetricCell } from "@/components/ui/metric-cell";
 import { DataBlur } from "@/components/ui/data-blur";
@@ -107,7 +108,7 @@ function aggregateCampaigns(rows: WindsorRow[]): LiveCampaign[] {
     if (!map[key]) {
       map[key] = {
         name: r.campaign,
-        platform: r.source === "facebook" ? "meta" : "google",
+        platform: classifyPlatform(r.source) === "meta" ? "meta" : "google",
         spend: 0,
         revenue: 0,
         conversions: 0,
@@ -213,7 +214,7 @@ export default function EcomPage() {
   }), [chartData]);
 
   // Platform breakdown
-  const metaRows = isLive ? venueFilteredData!.filter((r) => r.source === "facebook") : [];
+  const metaRows = isLive ? venueFilteredData!.filter((r) => isMetaSource(r.source)) : [];
   const googleRows = isLive ? venueFilteredData!.filter((r) => r.source === "google_ads" || r.source === "adwords") : [];
 
   const metaSpend = isLive ? metaRows.reduce((s, r) => s + (Number(r.spend) || 0), 0) : ecom.spend * (client?.metaAllocation ?? 0.5);

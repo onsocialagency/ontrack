@@ -200,7 +200,7 @@ function aggregateDaily(rows: WindsorRow[], fmtDate: (iso: string) => string) {
 /* ── Component ── */
 
 export default function IrgOverview() {
-  const { days, preset, dateFrom, dateTo } = useDateRange();
+  const { days, preset, dateFrom, dateTo, compareEnabled, prevDateFrom, prevDateTo } = useDateRange();
   const { shortDate: fmtDate } = useLocale();
   const { activeVenue: activeTab } = useVenue();
   const [kpiDetail, setKpiDetail] = useState<KpiDetailData | null>(null);
@@ -214,8 +214,18 @@ export default function IrgOverview() {
     ...(preset === "Custom" ? { dateFrom, dateTo } : {}),
   });
 
+  // Previous-period data for period-over-period deltas
+  const { data: prevWindsorData } = useWindsor<WindsorRow[]>({
+    clientSlug: "irg",
+    type: "campaigns",
+    days,
+    dateFrom: prevDateFrom,
+    dateTo: prevDateTo,
+  });
+
   const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
   const rows = isLive ? windsorData : [];
+  const prevRows = compareEnabled && Array.isArray(prevWindsorData) ? prevWindsorData : [];
 
   // Aggregate
   const brandMetrics = useMemo(() => aggregateByBrand(rows), [rows]);
@@ -237,6 +247,9 @@ export default function IrgOverview() {
   const blendedCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
   const budgetUsedPct = IRG_TOTAL_BUDGET > 0 ? (totalSpend / IRG_TOTAL_BUDGET) * 100 : 0;
 
+  // Previous-period aggregates (computed once per prevRows; scope-resolved below once activeMetrics is known)
+  const prevBrandMetrics = useMemo(() => aggregateByBrand(prevRows), [prevRows]);
+
   // Season pacing
   const seasonPacing = useMemo(() => getSeasonPacing(totalSpend, IRG_TOTAL_BUDGET), [totalSpend]);
 
@@ -245,6 +258,44 @@ export default function IrgOverview() {
   const activeMetrics = activeTab !== "all" ? brandMetrics[activeTab] : null;
   const activeBudget = activeBrand?.budget || IRG_TOTAL_BUDGET;
   const activeSpend = activeMetrics?.spend || totalSpend;
+
+  // Previous-period scope-resolved metrics (all brands sum vs single brand)
+  const prev = useMemo(() => {
+    const agg = (key: "spend" | "impressions" | "clicks" | "conversions") => {
+      if (activeTab !== "all") {
+        const v = prevBrandMetrics[activeTab]?.[key];
+        return typeof v === "number" ? v : 0;
+      }
+      return IRG_BRAND_ORDER.reduce((s, id) => {
+        const v = prevBrandMetrics[id]?.[key];
+        return s + (typeof v === "number" ? v : 0);
+      }, 0);
+    };
+    const spend = agg("spend");
+    const impressions = agg("impressions");
+    const clicks = agg("clicks");
+    const conversions = agg("conversions");
+    const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
+    const cpa = conversions > 0 ? spend / conversions : 0;
+    return { spend, impressions, clicks, conversions, ctr, cpa };
+  }, [prevBrandMetrics, activeTab]);
+
+  // Pct-change delta. Returns 0 when prev is 0 or compare disabled.
+  const pctDelta = (cur: number, previous: number): number => {
+    if (!compareEnabled || !previous || previous === 0) return 0;
+    return ((cur - previous) / previous) * 100;
+  };
+
+  const scopedImpressions = activeTab === "all" ? totalImpressions : (activeMetrics?.impressions ?? 0);
+  const scopedClicks = activeTab === "all" ? totalClicks : (activeMetrics?.clicks ?? 0);
+  const scopedCpa = activeTab === "all" ? blendedCpa : (activeMetrics?.cpa ?? 0);
+  const scopedCtr = activeTab === "all" ? blendedCtr : (activeMetrics?.ctr ?? 0);
+
+  const deltaSpend = pctDelta(activeSpend, prev.spend);
+  const deltaImpressions = pctDelta(scopedImpressions, prev.impressions);
+  const deltaClicks = pctDelta(scopedClicks, prev.clicks);
+  const deltaCpa = pctDelta(scopedCpa, prev.cpa);
+  const deltaCtr = pctDelta(scopedCtr, prev.ctr);
 
   // Sparklines
   const sparklines = useMemo(() => ({
@@ -352,7 +403,7 @@ export default function IrgOverview() {
           <KpiCard
             title="Total Spend"
             value={formatCurrency(activeSpend, "EUR")}
-            delta={0}
+            delta={deltaSpend}
             icon={<DollarSign size={14} />}
             tooltip="Total ad spend across Meta + Google Ads"
             sparkline={sparklines.spend}
@@ -367,7 +418,7 @@ export default function IrgOverview() {
           <KpiCard
             title={totalConversions > 0 ? "Blended CPA" : "CPA"}
             value={totalConversions > 0 ? formatCurrency(activeTab === "all" ? blendedCpa : (activeMetrics?.cpa || 0), "EUR") : "—"}
-            delta={0}
+            delta={deltaCpa}
             invertDelta
             icon={<Target size={14} />}
             tooltip={totalConversions > 0 ? "Total spend / total conversions" : "Conversion tracking not fully set up"}
@@ -384,7 +435,7 @@ export default function IrgOverview() {
           <KpiCard
             title="Impressions"
             value={formatNumber(activeTab === "all" ? totalImpressions : (activeMetrics?.impressions || 0))}
-            delta={0}
+            delta={deltaImpressions}
             icon={<Eye size={14} />}
             tooltip="Total ad impressions"
             sparkline={sparklines.impressions}
@@ -399,7 +450,7 @@ export default function IrgOverview() {
           <KpiCard
             title="Clicks"
             value={formatNumber(activeTab === "all" ? totalClicks : (activeMetrics?.clicks || 0))}
-            delta={0}
+            delta={deltaClicks}
             icon={<MousePointer size={14} />}
             tooltip="Total ad clicks"
             sparkline={sparklines.clicks}
@@ -414,7 +465,7 @@ export default function IrgOverview() {
           <KpiCard
             title="Blended CTR"
             value={`${(activeTab === "all" ? blendedCtr : (activeMetrics?.ctr || 0)).toFixed(2)}%`}
-            delta={0}
+            delta={deltaCtr}
             icon={<Percent size={14} />}
             tooltip="Clicks / Impressions across all platforms"
             accentColor="#22C55E"

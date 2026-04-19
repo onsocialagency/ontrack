@@ -81,7 +81,10 @@ const irgClient: Client = {
   type: "ecommerce",
   industry: "Hospitality / Events",
   currency: "EUR",
-  monthlyBudget: 304000, // Season total (Mar-Oct 2026) — NOT monthly
+  monthlyBudget: 304000, // Season total (Mar-Oct 2026) — see budgetPeriod flag
+  budgetPeriod: "seasonal",
+  seasonStart: "2026-03-01",
+  seasonEnd: "2026-10-31",
   metaAllocation: 0.45,
   googleAllocation: 0.55,
   targetROAS: 0, // ROAS unavailable — AOV data not received from IRG

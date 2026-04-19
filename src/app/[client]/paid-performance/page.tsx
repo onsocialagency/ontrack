@@ -10,6 +10,7 @@ import { useVenue } from "@/lib/venue-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
+import { classifyPlatform, isMetaSource } from "@/lib/windsor";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { MetricCell } from "@/components/ui/metric-cell";
 import {
@@ -213,7 +214,7 @@ function groupBy<T>(arr: T[], keyFn: (item: T) => string): Record<string, T[]> {
 /* ── Platform Badge ── */
 
 function PlatformBadge({ source }: { source: string }) {
-  const isMeta = source === "facebook" || source === "meta" || source === "instagram";
+  const isMeta = isMetaSource(source);
   return (
     <span
       className={cn(
@@ -272,7 +273,7 @@ function exportCSV(
     csvRows.push(
       [
         `"${r.name}"`,
-        r.source === "facebook" ? "Meta" : "Google",
+        classifyPlatform(r.source) === "meta" ? "Meta" : "Google",
         r.role,
         r.spend.toFixed(2),
         r.impressions,
@@ -403,15 +404,10 @@ export default function PaidPerformancePage() {
 
     // Platform filter
     if (platformFilter === "Meta") {
-      rows = rows.filter(
-        (r) =>
-          r.source === "facebook" ||
-          r.source === "meta" ||
-          r.source === "instagram",
-      );
+      rows = rows.filter((r) => classifyPlatform(r.source) === "meta");
     } else if (platformFilter === "Google") {
       rows = rows.filter(
-        (r) => r.source === "google_ads" || r.source === "adwords",
+        (r) => classifyPlatform(r.source) === "google",
       );
     }
 
@@ -778,7 +774,7 @@ export default function PaidPerformancePage() {
             const adsets = adsetMap[row.key] || [];
             const role = getChannelRole(row.campaign);
             const roleColor = role ? (ROLE_COLORS[role.id] || "#94A3B8") : null;
-            const isMeta = row.source === "facebook" || row.source === "meta" || row.source === "instagram";
+            const isMeta = isMetaSource(row.source);
 
             return (
               <div key={row.key} className="rounded-xl border border-white/[0.06] bg-white/[0.04] overflow-hidden">

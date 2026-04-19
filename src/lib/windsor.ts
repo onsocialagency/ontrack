@@ -9,6 +9,42 @@
 
 const WINDSOR_BASE = "https://connectors.windsor.ai";
 
+/* ── Platform classification ─────────────────────────────────────────
+ * Single source of truth for mapping a `WindsorRow.source` string to a
+ * logical platform bucket. Windsor surfaces the same platform under
+ * several source values (Meta = "facebook" | "meta" | "instagram";
+ * Google = "google_ads" | "google" | "adwords"; TikTok = "tiktok" | "tiktok_ads").
+ *
+ * **Always** use this helper instead of writing `source === "facebook"`
+ * checks inline — otherwise Instagram- and meta-sourced rows silently
+ * drop out of Meta buckets on some pages.
+ */
+export type Platform = "meta" | "google" | "tiktok" | "other";
+
+export function classifyPlatform(source: string | null | undefined): Platform {
+  const s = (source ?? "").toLowerCase().trim();
+  if (s === "facebook" || s === "meta" || s === "instagram" || s === "fb") {
+    return "meta";
+  }
+  if (s === "google" || s === "google_ads" || s === "googleads" || s === "adwords") {
+    return "google";
+  }
+  if (s === "tiktok" || s === "tiktok_ads" || s === "tt") {
+    return "tiktok";
+  }
+  return "other";
+}
+
+export const isMetaSource = (source: string | null | undefined): boolean =>
+  classifyPlatform(source) === "meta";
+
+export const isGoogleSource = (source: string | null | undefined): boolean =>
+  classifyPlatform(source) === "google";
+
+export const isTikTokSource = (source: string | null | undefined): boolean =>
+  classifyPlatform(source) === "tiktok";
+
+
 interface WindsorParams {
   apiKey: string;
   fields: string[];

@@ -165,3 +165,44 @@ export function getBillingPeriod(billingStartDay: number): BillingPeriod {
     label: `${fmtShort(start)} — ${fmtShort(end)} ${end.getFullYear()}`,
   };
 }
+
+/**
+ * Resolve a client's **effective monthly budget** for agency-wide roll-ups
+ * (master dashboard, revenue projection, etc).
+ *
+ * - `"monthly"` (or undefined): returns `client.monthlyBudget` unchanged.
+ * - `"seasonal"`: divides the lump-sum budget evenly across the months
+ *   between `seasonStart` and `seasonEnd` so a 304k season doesn't get
+ *   counted as 304k/month × 12 in master roll-ups.
+ *
+ * Falls back to `monthlyBudget` if season dates are missing/invalid.
+ *
+ * NOTE: This is for portfolio-level roll-ups. Inside a client's own
+ * overview we still show the full lump-sum as-is — that's the number
+ * the client cares about.
+ */
+export function getEffectiveMonthlyBudget(client: {
+  monthlyBudget: number;
+  budgetPeriod?: "monthly" | "seasonal";
+  seasonStart?: string;
+  seasonEnd?: string;
+}): number {
+  if (client.budgetPeriod !== "seasonal") return client.monthlyBudget;
+  const { seasonStart, seasonEnd, monthlyBudget } = client;
+  if (!seasonStart || !seasonEnd) return monthlyBudget;
+
+  const start = new Date(seasonStart);
+  const end = new Date(seasonEnd);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) {
+    return monthlyBudget;
+  }
+
+  // Inclusive months between start and end (rounded up so a 1 Mar – 31 Oct
+  // range gives 8 months, not 7.99).
+  const months =
+    (end.getFullYear() - start.getFullYear()) * 12 +
+    (end.getMonth() - start.getMonth()) +
+    1;
+
+  return months > 0 ? monthlyBudget / months : monthlyBudget;
+}

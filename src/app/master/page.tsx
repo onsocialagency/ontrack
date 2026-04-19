@@ -11,6 +11,7 @@ import {
   getPacingColor,
   getPacingTextColor,
   cn,
+  getEffectiveMonthlyBudget,
 } from "@/lib/utils";
 import type { Alert, Client } from "@/lib/types";
 import { getAllClients } from "@/lib/client-store";
@@ -53,20 +54,23 @@ export default async function MasterDashboardPage() {
   // Per-client data for the health grid
   const clientData = allClients.map((c: Client) => {
     const kpis = getClientKPIs(c.slug, c);
+    const effectiveBudget = getEffectiveMonthlyBudget(c);
     const pacing =
-      c.monthlyBudget > 0
-        ? Math.round((kpis.spend / c.monthlyBudget) * 100)
+      effectiveBudget > 0
+        ? Math.round((kpis.spend / effectiveBudget) * 100)
         : 0;
     return { client: c, kpis, pacing };
   });
 
   // Calculate Meta vs Google split for the stacked bar
   const totalMeta = allClients.reduce(
-    (sum: number, c: Client) => sum + c.monthlyBudget * c.metaAllocation,
+    (sum: number, c: Client) =>
+      sum + getEffectiveMonthlyBudget(c) * c.metaAllocation,
     0,
   );
   const totalGoogle = allClients.reduce(
-    (sum: number, c: Client) => sum + c.monthlyBudget * c.googleAllocation,
+    (sum: number, c: Client) =>
+      sum + getEffectiveMonthlyBudget(c) * c.googleAllocation,
     0,
   );
   const totalBudget = totalMeta + totalGoogle;
@@ -213,8 +217,9 @@ export default async function MasterDashboardPage() {
               {/* Per-client breakdown */}
               <div className="space-y-2 pt-2">
                 {allClients.map((c: Client) => {
-                  const cMeta = c.monthlyBudget * c.metaAllocation;
-                  const cGoogle = c.monthlyBudget * c.googleAllocation;
+                  const effective = getEffectiveMonthlyBudget(c);
+                  const cMeta = effective * c.metaAllocation;
+                  const cGoogle = effective * c.googleAllocation;
                   const cTotal = cMeta + cGoogle;
                   const cMetaPct = cTotal > 0 ? (cMeta / cTotal) * 100 : 50;
                   return (
