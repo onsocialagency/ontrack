@@ -3,6 +3,7 @@
 import { useMemo, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
+import { SuggestionWidget } from "@/components/suggestions/SuggestionWidget";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
 import { DataBlur } from "@/components/ui/data-blur";
@@ -322,6 +323,8 @@ export default function MinistryOverview() {
       <Header title="The Ministry" showDateRange dataBadge={{ loading: windsorLoading, isLive: !!isLive }} />
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
+
+        <SuggestionWidget />
 
         <DataBlur isBlurred={dataSource !== "windsor" && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
         {/* ── SECTION 1: KPI Strip ── */}

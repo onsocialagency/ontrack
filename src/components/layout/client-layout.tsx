@@ -6,6 +6,7 @@ import { LocaleProvider } from "@/lib/locale-context";
 import { ClientProvider } from "@/lib/client-context";
 import { AttributionProvider } from "@/lib/attribution-context";
 import { VenueProvider } from "@/lib/venue-context";
+import { SuggestionAlertProvider } from "@/lib/suggestion-alert-context";
 import { cn } from "@/lib/utils";
 import type { Client } from "@/lib/types";
 
@@ -73,7 +74,9 @@ export function ClientLayout({
       <ClientProvider clientSlug={clientSlug} clientName={clientName} clientLogo={clientLogo} clientColor={clientColor} isAdmin={isAdmin} clientConfig={clientConfig}>
         <DateRangeProvider>
         <AttributionProvider>
-          {isIrg ? <VenueProvider>{inner}</VenueProvider> : inner}
+          <SuggestionAlertProvider>
+            {isIrg ? <VenueProvider>{inner}</VenueProvider> : inner}
+          </SuggestionAlertProvider>
         </AttributionProvider>
         </DateRangeProvider>
       </ClientProvider>

@@ -20,9 +20,11 @@ import {
   BarChart3,
   Megaphone,
   GitCompare,
+  Lightbulb,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useSuggestionAlerts } from "@/lib/suggestion-alert-context";
 
 /* ── Types ── */
 
@@ -47,6 +49,8 @@ interface NavItem {
   icon: React.ReactNode;
   /** Show a small green dot badge (e.g. for Creative Lab alerts) */
   badge?: boolean;
+  /** Show a numeric count badge next to the label */
+  countBadge?: number;
 }
 
 /* ── Navigation Definitions ── */
@@ -63,6 +67,7 @@ function getMinistryNav(slug: string): NavItem[] {
   const base = `/${slug}`;
   return [
     { label: "Overview", href: base, icon: <LayoutDashboard size={20} /> },
+    { label: "Suggestions", href: `${base}/suggestions`, icon: <Lightbulb size={20} /> },
     { label: "Campaigns", href: `${base}/attribution`, icon: <Megaphone size={20} /> },
     { label: "Creative Lab", href: `${base}/creative-lab`, icon: <Palette size={20} /> },
     { label: "Lead Generation", href: `${base}/lead-gen`, icon: <Target size={20} /> },
@@ -75,6 +80,7 @@ function getIrgNav(slug: string): NavItem[] {
   const base = `/${slug}`;
   return [
     { label: "Overview", href: base, icon: <LayoutDashboard size={20} /> },
+    { label: "Suggestions", href: `${base}/suggestions`, icon: <Lightbulb size={20} /> },
     { label: "Campaigns", href: `${base}/attribution`, icon: <Megaphone size={20} /> },
     { label: "Creative Lab", href: `${base}/creative-lab`, icon: <Palette size={20} /> },
     { label: "Reports", href: `${base}/reports`, icon: <FileText size={20} /> },
@@ -86,6 +92,7 @@ function getLaurastarNav(slug: string): NavItem[] {
   const base = `/${slug}`;
   return [
     { label: "Overview", href: base, icon: <LayoutDashboard size={20} /> },
+    { label: "Suggestions", href: `${base}/suggestions`, icon: <Lightbulb size={20} /> },
     { label: "Campaigns", href: `${base}/attribution`, icon: <Megaphone size={20} /> },
     { label: "Creative Lab", href: `${base}/creative-lab`, icon: <Palette size={20} /> },
     { label: "Ecom", href: `${base}/ecom`, icon: <ShoppingCart size={20} /> },
@@ -103,6 +110,7 @@ function getClientNav(slug: string, clientType: ClientType): NavItem[] {
   const base = `/${slug}`;
   const items: NavItem[] = [
     { label: "Overview", href: base, icon: <LayoutDashboard size={20} /> },
+    { label: "Suggestions", href: `${base}/suggestions`, icon: <Lightbulb size={20} /> },
     { label: "Attribution", href: `${base}/attribution`, icon: <TrendingUp size={20} /> },
     { label: "Creative Lab", href: `${base}/creative-lab`, icon: <Palette size={20} /> },
     { label: "Web Analytics", href: `${base}/analytics`, icon: <BarChart3 size={20} /> },
@@ -142,6 +150,7 @@ export function Sidebar({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [clientSwitcherOpen, setClientSwitcherOpen] = useState(false);
+  const { summary: suggestionSummary } = useSuggestionAlerts();
 
   // Close mobile sidebar on route change
   useEffect(() => {
@@ -163,11 +172,18 @@ export function Sidebar({
   const navItems =
     mode === "master"
       ? getMasterNav()
-      : getClientNav(clientSlug ?? "", clientType).map((item) =>
-          item.label === "Creative Lab" && creativeLabHasAlerts
-            ? { ...item, badge: true }
-            : item,
-        );
+      : getClientNav(clientSlug ?? "", clientType).map((item) => {
+          if (item.label === "Creative Lab" && creativeLabHasAlerts) {
+            return { ...item, badge: true };
+          }
+          if (item.label === "Suggestions") {
+            const next: NavItem = { ...item };
+            if (suggestionSummary.hasHighPriority) next.badge = true;
+            if (suggestionSummary.totalActive > 0) next.countBadge = suggestionSummary.totalActive;
+            return next;
+          }
+          return item;
+        });
 
   const homeHref = mode === "master" ? "/master" : `/${clientSlug}`;
 
@@ -350,8 +366,16 @@ export function Sidebar({
                 {item.icon}
               </span>
               {!collapsed && <span className="truncate">{item.label}</span>}
+              {!collapsed && typeof item.countBadge === "number" && item.countBadge > 0 && (
+                <span className="ml-auto flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-white/[0.08] text-[#E2E8F0]">
+                  {item.countBadge}
+                </span>
+              )}
               {item.badge && (
-                <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0 animate-pulse" />
+                <span className={cn(
+                  "w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0 animate-pulse",
+                  !collapsed && typeof item.countBadge !== "number" && "ml-auto",
+                )} />
               )}
             </Link>
           );

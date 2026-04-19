@@ -6,6 +6,7 @@ import MinistryOverview from "./ministry-overview";
 import IrgOverview from "./irg-overview";
 import LaurastarOverview from "./laurastar-overview";
 import { Header } from "@/components/layout/header";
+import { SuggestionWidget } from "@/components/suggestions/SuggestionWidget";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { PacingBar } from "@/components/ui/pacing-bar";
 import { getClientKPIs, getClientDailyMetrics } from "@/lib/mock-data";
@@ -322,6 +323,8 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
       <Header title={client.name} showAttribution dataBadge={{ loading: windsorLoading, isLive: !!isLive }} />
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
+
+        <SuggestionWidget />
 
         <DataBlur isBlurred={!isLive && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
         {/* ── KPI Grid ── */}

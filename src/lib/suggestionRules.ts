@@ -17,7 +17,6 @@
 import type {
   Client,
   Suggestion,
-  SuggestionCategory,
   SuggestionPriority,
 } from "./types";
 import type { LiveCreative } from "./creativeAggregator";

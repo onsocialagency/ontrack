@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useCallback } from "react";
 import { Header } from "@/components/layout/header";
+import { SuggestionWidget } from "@/components/suggestions/SuggestionWidget";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { DataBlur } from "@/components/ui/data-blur";
 import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
@@ -308,6 +309,8 @@ export default function IrgOverview() {
       />
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
+
+        <SuggestionWidget />
 
         <DataBlur isBlurred={dataSource !== "windsor" && !loading} isLoading={loading} className="space-y-4 sm:space-y-5">
         {/* ── Data Gap Warnings ── */}
