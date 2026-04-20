@@ -10,7 +10,7 @@ import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
-import { classifyPlatform, isMetaSource } from "@/lib/windsor";
+import { classifyPlatform, isMetaSource, isGoogleSource } from "@/lib/windsor";
 import {
   runAttribution,
   MODEL_NAMES,
@@ -1040,13 +1040,18 @@ export default function AttributionPage() {
           {(() => {
             // Channel-level aggregations
             const metaRows2 = isLive ? (venueFilteredData || []).filter((r) => isMetaSource(r.source)) : [];
-            const googleRows2 = isLive ? (venueFilteredData || []).filter((r) => r.source !== "facebook") : [];
+            const googleRows2 = isLive ? (venueFilteredData || []).filter((r) => isGoogleSource(r.source)) : [];
             const metaImpr = metaRows2.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
             const googleImpr = googleRows2.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
             const metaClicks = metaRows2.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
             const googleClicks = googleRows2.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
             const metaCampaigns = filtered.filter((c) => c.platform === "meta");
             const googleCampaigns = filtered.filter((c) => c.platform === "google");
+
+            // Raw (platform-reported) conversions — always shown in "Conv" column.
+            // Model-adjusted figures — shown in "Adj. Conv" column.
+            const rawMetaConv = attribution?.allResults?.rawMetaConversions ?? 0;
+            const rawGoogleConv = attribution?.allResults?.rawGoogleConversions ?? 0;
 
             const allChannelRows = [
               {
@@ -1055,7 +1060,8 @@ export default function AttributionPage() {
                 platform: "meta" as const,
                 spend: metaSpend,
                 roas: currentModel ? currentModel.metaRoas : 0,
-                conversions: currentModel ? currentModel.metaConversions : 0,
+                conversions: rawMetaConv,
+                adjConversions: currentModel ? currentModel.metaConversions : 0,
                 revenue: currentModel ? currentModel.metaRevenue : 0,
                 impressions: metaImpr,
                 clicks: metaClicks,
@@ -1067,7 +1073,8 @@ export default function AttributionPage() {
                 platform: "google" as const,
                 spend: googleSpend,
                 roas: currentModel ? currentModel.googleRoas : 0,
-                conversions: currentModel ? currentModel.googleConversions : 0,
+                conversions: rawGoogleConv,
+                adjConversions: currentModel ? currentModel.googleConversions : 0,
                 revenue: currentModel ? currentModel.googleRevenue : 0,
                 impressions: googleImpr,
                 clicks: googleClicks,
@@ -1177,7 +1184,7 @@ export default function AttributionPage() {
                               <td className="p-3 text-right text-sm text-[#94A3B8]">{formatCurrency(chCpc, client.currency)}</td>
                               <td className="p-3 text-right text-sm text-[#94A3B8]">{formatCurrency(chCpm, client.currency)}</td>
                               <td className="p-3 text-right text-sm font-bold text-white">{formatNumber(ch.conversions)}</td>
-                              <td className="p-3 text-right text-sm font-bold text-[#FF6A41]">{formatNumber(ch.conversions)}</td>
+                              <td className="p-3 text-right text-sm font-bold text-[#FF6A41]">{formatNumber(ch.adjConversions)}</td>
                               <td className="p-3 text-right text-sm text-[#94A3B8]">{chCpa > 0 ? formatCurrency(chCpa, client.currency) : "—"}</td>
                               <td className="p-3 text-right text-sm font-bold">
                                 <span className={ch.roas >= 1 ? "text-emerald-400" : "text-red-400"}>
@@ -1259,7 +1266,7 @@ export default function AttributionPage() {
                           <MetricCell label="CPC" value={formatCurrency(chCpc, client.currency)} />
                           <MetricCell label="CPM" value={formatCurrency(chCpm, client.currency)} />
                           <MetricCell label="Conv" value={formatNumber(ch.conversions)} emphasis />
-                          <MetricCell label="Adj Cv" value={formatNumber(ch.conversions)} />
+                          <MetricCell label="Adj Cv" value={formatNumber(ch.adjConversions)} />
                           <MetricCell label="CPA" value={chCpa > 0 ? formatCurrency(chCpa, client.currency) : "—"} />
                           <MetricCell
                             label={isLeadGen ? "CPL" : "ROAS"}

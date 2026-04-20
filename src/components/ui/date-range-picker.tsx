@@ -57,17 +57,23 @@ export function DateRangePicker() {
   const [hoverDay, setHoverDay] = useState<Date | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
+  // Close on outside click / touch (mousedown alone misses some iOS WebKit cases)
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
+    function handleOutside(e: Event) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
         setOpen(false);
         setSelecting(null);
         setTempFrom(null);
       }
     }
-    if (open) document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    if (open) {
+      document.addEventListener("mousedown", handleOutside);
+      document.addEventListener("touchstart", handleOutside, { passive: true });
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleOutside);
+      document.removeEventListener("touchstart", handleOutside);
+    };
   }, [open]);
 
   // Close on Escape
@@ -154,15 +160,15 @@ export function DateRangePicker() {
       <button
         onClick={openPicker}
         className={cn(
-          "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+          "inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all min-w-0 max-w-[180px] sm:max-w-none",
           open
             ? "bg-[#FF6A41]/15 text-[#FF6A41] border border-[#FF6A41]/30"
             : "bg-white/[0.05] text-[#94A3B8] hover:text-white hover:bg-white/[0.08] border border-white/[0.08]",
         )}
       >
-        <Calendar size={13} />
-        <span>{buttonLabel}</span>
-        <ChevronRight size={11} className={cn("transition-transform", open && "rotate-90")} />
+        <Calendar size={13} className="flex-shrink-0" />
+        <span className="truncate min-w-0">{buttonLabel}</span>
+        <ChevronRight size={11} className={cn("flex-shrink-0 transition-transform", open && "rotate-90")} />
       </button>
 
       {/* Popover */}
@@ -189,6 +195,22 @@ export function DateRangePicker() {
 
           {/* Right: Calendar */}
           <div className="p-4 flex-1 min-w-[280px]">
+            {/* Selection guidance */}
+            <div className="mb-2 text-[11px] text-[#94A3B8] flex items-center justify-between gap-2">
+              <span>
+                {selecting === "from" && "Tap start date"}
+                {selecting === "to" && tempFrom && (
+                  <>
+                    Start:{" "}
+                    <span className="text-white font-medium">
+                      {format(tempFrom, "MMM d, yyyy")}
+                    </span>
+                    {" "}— tap end date
+                  </>
+                )}
+                {selecting === null && "Pick a preset or a custom range"}
+              </span>
+            </div>
             {/* Month nav */}
             <div className="flex items-center justify-between mb-3">
               <button

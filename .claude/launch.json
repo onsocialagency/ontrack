@@ -4,7 +4,7 @@
     {
       "name": "ontrack-dev",
       "runtimeExecutable": "/bin/sh",
-      "runtimeArgs": ["-c", "export PATH=/usr/local/bin:$PATH && npm run dev"],
+      "runtimeArgs": ["-c", "export PATH=/usr/local/bin:$PATH && cd \"/Users/zackisaacs/Documents/OnTrack Dashboard  [LIVE]/ontrack 22-43-23-744\" && npm run dev"],
       "port": 3000,
       "autoPort": true
     }
