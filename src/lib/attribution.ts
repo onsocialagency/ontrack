@@ -12,6 +12,7 @@
  */
 
 import type { WindsorRow } from "./windsor";
+import { rowConversions, sumConversions } from "./windsor";
 
 /* ── Types ── */
 
@@ -192,10 +193,15 @@ function aggregate(rows: WindsorRow[]): Aggregated {
 
   const dailyMap: Record<string, { metaSpend: number; googleSpend: number }> = {};
 
+  // Respect the Google primary→all_conversions total-level fallback so the
+  // attribution engine reconciles to the KPI tiles exactly.
+  const useAllConvFallback = sumConversions(rows).usedGoogleAllFallback;
+
   for (const r of rows) {
     const spend = Number(r.spend) || 0;
-    const revenue = Number(r.revenue) || 0;
-    const conversions = Number(r.conversions) || 0;
+    const rc = rowConversions(r, useAllConvFallback);
+    const revenue = rc.revenue;
+    const conversions = rc.conversions;
     const campaign = r.campaign || "";
     const date = r.date || "unknown";
 

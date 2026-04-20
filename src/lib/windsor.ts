@@ -234,55 +234,66 @@ async function fetchRaw(params: WindsorParams): Promise<Record<string, unknown>[
 
 /**
  * Extract a numeric value from Facebook's actions array.
- * Returns the value of the FIRST matching action type found (priority order).
+ * Returns BOTH the matching action_type AND the value, so callers can look up
+ * the corresponding revenue for the SAME action type (avoids the classic
+ * count/value mismatch where conversions uses `purchase` but value uses
+ * `offsite_conversion.fb_pixel_purchase`, inflating ROAS).
  * Facebook returns conversions as: actions: [{ action_type: "purchase", value: "23" }, ...]
  */
 function extractAction(
   actions: { action_type: string; value: string }[] | undefined,
   actionTypes: string[],
-): number {
-  if (!actions || !Array.isArray(actions)) return 0;
+): { value: number; matchedType: string | null } {
+  if (!actions || !Array.isArray(actions)) return { value: 0, matchedType: null };
   for (const type of actionTypes) {
     const found = actions.find((a) => a.action_type === type);
-    if (found) return Number(found.value) || 0;
+    if (found) return { value: Number(found.value) || 0, matchedType: type };
   }
-  return 0;
+  return { value: 0, matchedType: null };
 }
 
-function extractActionValue(
+/** Look up a specific action_type's value in action_values. Used to pair the
+ *  revenue to the exact purchase-action that was counted. */
+function findActionValue(
   actionValues: { action_type: string; value: string }[] | undefined,
-  actionTypes: string[],
+  actionType: string | null,
 ): number {
-  if (!actionValues || !Array.isArray(actionValues)) return 0;
-  for (const type of actionTypes) {
-    const found = actionValues.find((a) => a.action_type === type);
-    if (found) return Number(found.value) || 0;
-  }
-  return 0;
+  if (!actionType || !actionValues || !Array.isArray(actionValues)) return 0;
+  const found = actionValues.find((a) => a.action_type === actionType);
+  return found ? Number(found.value) || 0 : 0;
 }
 
-/* ── Facebook conversion action types by category ── */
+/* ── Facebook conversion action types by category ──
+ * Ordered by priority (first match wins). The top choice on each list is the
+ * aggregated action the Meta Ads Manager UI shows by default — secondary
+ * entries are covered only when the primary is missing (e.g. pre-Omni
+ * accounts that only log pixel events). Count and value extraction use the
+ * same list so the row-level ROAS matches Meta's UI. */
 
-/** Ecommerce / purchase conversion events */
+/** Ecommerce / purchase conversion events. `purchase` and `omni_purchase` are
+ *  Meta's aggregated cross-surface totals — they match the "Purchases" column
+ *  in Ads Manager. Pixel/onsite/web_app/offline entries are fallbacks for
+ *  accounts that don't emit an aggregated `purchase` action. */
 const FB_PURCHASE_ACTIONS = [
   "purchase",
   "omni_purchase",
+  "onsite_web_purchase",
+  "onsite_web_app_purchase",
+  "web_app_purchase",
   "offsite_conversion.fb_pixel_purchase",
+  "offline_conversion.fb_pixel_purchase",
 ];
 
-/** Lead / enquiry conversion events */
+/** Lead / enquiry conversion events. `lead` is Meta's aggregated total —
+ *  matches the "Leads" column in Ads Manager. `complete_registration`
+ *  covers accounts whose lead event is logged as registration. */
 const FB_LEAD_ACTIONS = [
   "lead",
-  "offsite_conversion.fb_pixel_lead",
+  "complete_registration",
   "onsite_web_lead",
+  "offsite_conversion.fb_pixel_lead",
+  "offsite_conversion.fb_pixel_complete_registration",
   "offsite_conversion.fb_pixel_custom",
-];
-
-/** Revenue-bearing action types */
-const FB_REVENUE_ACTIONS = [
-  "offsite_conversion.fb_pixel_purchase",
-  "onsite_web_app_purchase",
-  "onsite_web_purchase",
 ];
 
 /**
@@ -312,21 +323,29 @@ function normalizeRow(raw: Record<string, unknown>, source: string): WindsorRow 
   let revenue = 0;
 
   if (source === "facebook") {
-    // Facebook: extract from actions/action_values arrays
+    // Facebook: extract from actions/action_values arrays. Mirrors the Google
+    // logic: prefer the aggregated UI-facing action (`purchase` / `lead`),
+    // fall back to pixel/onsite/offline events only if the aggregated one is
+    // missing. Count and value always resolve against the same action_type so
+    // row-level ROAS can't diverge from Ads Manager.
     const actions = raw.actions as { action_type: string; value: string }[] | undefined;
     const actionValues = raw.action_values as { action_type: string; value: string }[] | undefined;
 
-    // Try purchase conversions first
-    const purchaseConversions = extractAction(actions, FB_PURCHASE_ACTIONS);
-    // Also try lead conversions — use the HIGHEST single lead action type
-    // (not sum, to avoid double-counting: "lead" often includes "fb_pixel_lead")
-    const leadConversions = extractAction(actions, FB_LEAD_ACTIONS);
+    const purchase = extractAction(actions, FB_PURCHASE_ACTIONS);
+    // Lead extraction: "first match wins" in priority order (not sum) — Meta
+    // often emits `lead` alongside `fb_pixel_lead` as the same event, summing
+    // would double-count.
+    const lead = extractAction(actions, FB_LEAD_ACTIONS);
 
-    // Use whichever category has more conversions
-    conversions = Math.max(purchaseConversions, leadConversions);
-
-    // Revenue only comes from purchase events
-    revenue = extractActionValue(actionValues, FB_REVENUE_ACTIONS);
+    // Use whichever category has more conversions. Keep the matched action so
+    // revenue looks up the same row in action_values.
+    if (purchase.value >= lead.value) {
+      conversions = purchase.value;
+      revenue = findActionValue(actionValues, purchase.matchedType);
+    } else {
+      conversions = lead.value;
+      revenue = 0; // Lead events don't carry revenue
+    }
   } else {
     // Google Ads: direct fields
     //
