@@ -23,7 +23,7 @@ import { useVenue } from "@/lib/venue-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { assignIrgBrand } from "@/lib/irg-brands";
 import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
-import { formatCurrency, formatROAS, formatNumber, cn } from "@/lib/utils";
+import { formatCurrency, formatROAS, formatNumber, cn, conversionTerms } from "@/lib/utils";
 import type { CampaignRow } from "@/lib/types";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import { MetricCell } from "@/components/ui/metric-cell";
@@ -254,7 +254,7 @@ function aggregateAds(rows: WindsorRow[], campaignName: string, adSetName?: stri
 function exportCSV(rows: (LiveCampaign | CampaignRow)[]) {
   const headers = [
     "Campaign", "Platform", "Spend", "Impressions", "Clicks",
-    "CTR", "CPC", "CPM", "Conversions", "CPA", "ROAS",
+    "CTR", "CPC", "CPM", "Conversions", "CPA", "CPL", "ROAS",
   ];
   const csvRows = [headers.join(",")];
 
@@ -404,7 +404,7 @@ function MobileCampaignCard({
                     <MetricCell label="CPC" value={formatCurrency(adSet.cpc, client.currency)} />
                     <MetricCell label="CPM" value={formatCurrency(adSet.cpm, client.currency)} />
                     <MetricCell label="Conv" value={formatNumber(adSet.conversions)} />
-                    <MetricCell label="CPA" value={formatCurrency(adSet.cpa, client.currency)} />
+                    <MetricCell label={isLeadGen ? "CPL" : "CPA"} value={formatCurrency(adSet.cpa, client.currency)} />
                     <MetricCell label="ROAS" value={formatROAS(adSet.roas)} />
                   </div>
                 </div>
@@ -428,7 +428,7 @@ function MobileCampaignCard({
                           <MetricCell label="Impr" value={formatNumber(ad.impressions)} />
                           <MetricCell label="CTR" value={`${ad.ctr.toFixed(2)}%`} />
                           <MetricCell label="Conv" value={formatNumber(ad.conversions)} />
-                          <MetricCell label="CPA" value={formatCurrency(ad.cpa, client.currency)} />
+                          <MetricCell label={isLeadGen ? "CPL" : "CPA"} value={formatCurrency(ad.cpa, client.currency)} />
                           <MetricCell label="ROAS" value={formatROAS(ad.roas)} />
                         </div>
                       </div>
@@ -461,7 +461,7 @@ function MobileCampaignCard({
                 <MetricCell label="Impr" value={formatNumber(ad.impressions)} />
                 <MetricCell label="CTR" value={`${ad.ctr.toFixed(2)}%`} />
                 <MetricCell label="Conv" value={formatNumber(ad.conversions)} />
-                <MetricCell label="CPA" value={formatCurrency(ad.cpa, client.currency)} />
+                <MetricCell label={isLeadGen ? "CPL" : "CPA"} value={formatCurrency(ad.cpa, client.currency)} />
                 <MetricCell label="ROAS" value={formatROAS(ad.roas)} />
               </div>
             </div>
@@ -486,7 +486,7 @@ function MobileCampaignCard({
                 <MetricCell label="CPC" value={formatCurrency(child.cpc, client.currency)} />
                 <MetricCell label="CPM" value={formatCurrency(child.cpm, client.currency)} />
                 <MetricCell label="Conv" value={formatNumber(child.conversions)} />
-                <MetricCell label="CPA" value={formatCurrency(child.cpa, client.currency)} />
+                <MetricCell label={isLeadGen ? "CPL" : "CPA"} value={formatCurrency(child.cpa, client.currency)} />
                 <MetricCell label="ROAS" value={formatROAS(child.roas)} />
               </div>
             </div>
@@ -506,6 +506,8 @@ export default function AttributionPage() {
   const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};
   const ctx = useClient();
   const clientOrNull = ctx?.clientConfig;
+  // Lead-gen clients (e.g. Ministry) see "CPL" instead of "CPA" throughout.
+  const terms = conversionTerms(clientOrNull);
   const mockKpis = getClientKPIs(clientSlug, clientOrNull ?? undefined);
   const allMockCampaigns = getClientCampaigns(clientSlug, undefined, clientOrNull ?? undefined);
 
@@ -1143,7 +1145,7 @@ export default function AttributionPage() {
                           <SortHeader label="CPM" colKey="cpm" tooltip="Cost per 1,000 impressions" />
                           <SortHeader label="Conv." colKey="conversions" tooltip="Platform-reported conversions" />
                           <SortHeader label="Adj. Conv." colKey="adjConversions" tooltip={`Model-adjusted conversions (${MODEL_LABELS[activeModel]})`} />
-                          <SortHeader label="CPA" colKey="cpa" tooltip="Cost per acquisition" />
+                          <SortHeader label={terms.costLabel} colKey="cpa" tooltip={terms.costLabelLong} />
                           <SortHeader label={isLeadGen ? "CPL" : "ROAS"} colKey="roas" tooltip={isLeadGen ? "Cost per lead" : "Return on ad spend"} />
                         </tr>
                       </thead>

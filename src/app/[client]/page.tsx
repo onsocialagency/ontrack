@@ -22,6 +22,7 @@ import {
   formatNumber,
   formatROAS,
   getBillingPeriod,
+  conversionTerms,
 } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
@@ -241,6 +242,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
   if (!client) return null;
 
   const isLeadGen = client.type === "lead_gen";
+  const terms = conversionTerms(client);
 
   // Platform split
   const metaSpend = isLive
@@ -375,17 +377,17 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
               />
             )}
             <KpiCard
-              title="Cost Per Acquisition"
+              title={terms.costLabelLong}
               value={formatCurrency(kpis.cpa, client.currency)}
               delta={deltas.cpa}
               invertDelta
               icon={<Target size={14} />}
-              tooltip="Cost Per Acquisition — spend divided by conversions"
+              tooltip={`${terms.costLabelLong} — spend divided by ${terms.plural.toLowerCase()}`}
               sparkline={sparklines.cpa}
               accentColor="#F59E0B"
               previousValue={prevFormatted?.cpa}
               onClick={() => setKpiDetail(buildKpiDetail(
-                "CPA", <Target size={18} />,
+                terms.costLabel, <Target size={18} />,
                 formatCurrency(kpis.cpa, client.currency),
                 "cpa",
                 [
@@ -597,7 +599,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
           {/* Column headers */}
           <div className="hidden sm:grid grid-cols-[1fr_repeat(5,minmax(0,1fr))] gap-3 px-1">
             <span />
-            {["Spend", "Revenue", "ROAS", "Conversions", "CPA"].map((h) => (
+            {["Spend", "Revenue", "ROAS", terms.plural, terms.costLabel].map((h) => (
               <span key={h} className="text-[9px] text-[#64748B] uppercase tracking-wider text-right">{h}</span>
             ))}
           </div>
@@ -614,7 +616,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
               { label: "Revenue", value: formatCurrency(metaRevenue, client.currency) },
               { label: "ROAS", value: metaSpend > 0 ? formatROAS(metaRevenue / metaSpend) : "—" },
               { label: "Conv", value: formatNumber(metaConversions) },
-              { label: "CPA", value: metaConversions > 0 ? formatCurrency(metaSpend / metaConversions, client.currency) : "—" },
+              { label: terms.costLabel, value: metaConversions > 0 ? formatCurrency(metaSpend / metaConversions, client.currency) : "—" },
             ].map((m) => (
               <div key={m.label} className="text-right">
                 <p className="text-[9px] text-[#64748B] uppercase sm:hidden mb-0.5">{m.label}</p>
@@ -635,7 +637,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
               { label: "Revenue", value: formatCurrency(googleRevenue, client.currency) },
               { label: "ROAS", value: googleSpend > 0 ? formatROAS(googleRevenue / googleSpend) : "—" },
               { label: "Conv", value: formatNumber(googleConversions) },
-              { label: "CPA", value: googleConversions > 0 ? formatCurrency(googleSpend / googleConversions, client.currency) : "—" },
+              { label: terms.costLabel, value: googleConversions > 0 ? formatCurrency(googleSpend / googleConversions, client.currency) : "—" },
             ].map((m) => (
               <div key={m.label} className="text-right">
                 <p className="text-[9px] text-[#64748B] uppercase sm:hidden mb-0.5">{m.label}</p>
@@ -654,7 +656,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
               { label: "Revenue", value: formatCurrency(kpis.revenue, client.currency) },
               { label: "ROAS", value: kpis.spend > 0 ? formatROAS(kpis.revenue / kpis.spend) : "—" },
               { label: "Conv", value: formatNumber(kpis.conversions) },
-              { label: "CPA", value: kpis.conversions > 0 ? formatCurrency(kpis.spend / kpis.conversions, client.currency) : "—" },
+              { label: terms.costLabel, value: kpis.conversions > 0 ? formatCurrency(kpis.spend / kpis.conversions, client.currency) : "—" },
             ].map((m) => (
               <div key={m.label} className="text-right">
                 <p className="text-[9px] text-[#64748B] uppercase sm:hidden mb-0.5">{m.label}</p>

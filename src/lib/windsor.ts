@@ -921,9 +921,16 @@ export function filterByClient(
     return rows;
   }
 
+  // Normalize account IDs: Google Ads Customer IDs are written as
+  // "771-197-5192" in the UI but Windsor returns them digits-only as
+  // "7711975192". Match on digits-only so both forms reconcile.
+  const normalize = (id: string | number | undefined | null) =>
+    String(id ?? "").replace(/\D+/g, "");
+  const wantedIds = new Set((opts.accountIds ?? []).map(normalize).filter(Boolean));
+
   return rows.filter((row) => {
-    if (opts.accountIds?.length && row.account_id) {
-      if (opts.accountIds.some((id) => row.account_id === id)) return true;
+    if (wantedIds.size > 0 && row.account_id) {
+      if (wantedIds.has(normalize(row.account_id))) return true;
     }
 
     if (opts.accountNames?.length && row.account_name) {

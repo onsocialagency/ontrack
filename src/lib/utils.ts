@@ -1,8 +1,35 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import type { Client, ClientType } from "@/lib/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+/**
+ * Conversion-terminology helper. Lead-gen clients (The Ministry) should see
+ * "Lead" / "CPL" wording; ecommerce clients see "Acquisition" / "CPA".
+ * Pass either the full Client object or just its `type` field — whichever the
+ * caller already has.
+ */
+export function conversionTerms(input: Pick<Client, "type"> | ClientType | undefined | null): {
+  /** Short metric label — "CPA" or "CPL" */
+  costLabel: "CPA" | "CPL";
+  /** Full metric label — "Cost Per Acquisition" / "Cost Per Lead" */
+  costLabelLong: string;
+  /** Singular noun — "acquisition" / "lead" */
+  unit: "acquisition" | "lead";
+  /** Plural noun for headers — "Conversions" / "Leads" */
+  plural: "Conversions" | "Leads";
+} {
+  const type = typeof input === "string" ? input : input?.type;
+  const isLead = type === "lead_gen";
+  return {
+    costLabel: isLead ? "CPL" : "CPA",
+    costLabelLong: isLead ? "Cost Per Lead" : "Cost Per Acquisition",
+    unit: isLead ? "lead" : "acquisition",
+    plural: isLead ? "Leads" : "Conversions",
+  };
 }
 
 export function formatCurrency(value: number, currency = "GBP"): string {
