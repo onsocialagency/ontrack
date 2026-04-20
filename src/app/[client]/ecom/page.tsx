@@ -15,7 +15,7 @@ import { useVenue } from "@/lib/venue-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { assignIrgBrand } from "@/lib/irg-brands";
 import type { WindsorRow } from "@/lib/windsor";
-import { classifyPlatform, isMetaSource } from "@/lib/windsor";
+import { classifyPlatform, isMetaSource, isGoogleSource } from "@/lib/windsor";
 import { formatCurrency, formatROAS, formatNumber, cn, getBillingPeriod } from "@/lib/utils";
 import { MetricCell } from "@/components/ui/metric-cell";
 import { DataBlur } from "@/components/ui/data-blur";
@@ -215,7 +215,7 @@ export default function EcomPage() {
 
   // Platform breakdown
   const metaRows = isLive ? venueFilteredData!.filter((r) => isMetaSource(r.source)) : [];
-  const googleRows = isLive ? venueFilteredData!.filter((r) => r.source === "google_ads" || r.source === "adwords") : [];
+  const googleRows = isLive ? venueFilteredData!.filter((r) => isGoogleSource(r.source)) : [];
 
   const metaSpend = isLive ? metaRows.reduce((s, r) => s + (Number(r.spend) || 0), 0) : ecom.spend * (client?.metaAllocation ?? 0.5);
   const metaRevenue = isLive ? metaRows.reduce((s, r) => s + (Number(r.revenue) || 0), 0) : ecom.revenue * (client?.metaAllocation ?? 0.5);

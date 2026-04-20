@@ -13,7 +13,7 @@ import { useDateRange } from "@/lib/date-range-context";
 import { useLocale } from "@/lib/locale-context";
 import { getClientKPIs, getClientDailyMetrics, getClientCreatives } from "@/lib/mock-data";
 import type { WindsorRow } from "@/lib/windsor";
-import { isMetaSource } from "@/lib/windsor";
+import { isMetaSource, isGoogleSource } from "@/lib/windsor";
 import { formatCurrency, formatNumber, formatROAS, getBillingPeriod } from "@/lib/utils";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
@@ -224,7 +224,7 @@ export default function LaurastarOverview() {
     ? windsorData.filter((r) => isMetaSource(r.source)).reduce((s, r) => s + (Number(r.spend) || 0), 0)
     : kpis.spend * client.metaAllocation;
   const googleSpend = isLive
-    ? windsorData.filter((r) => r.source !== "facebook" && r.source !== "meta" && r.source !== "instagram").reduce((s, r) => s + (Number(r.spend) || 0), 0)
+    ? windsorData.filter((r) => isGoogleSource(r.source)).reduce((s, r) => s + (Number(r.spend) || 0), 0)
     : kpis.spend * client.googleAllocation;
   const totalPlatformSpend = metaSpend + googleSpend;
   const metaPct = totalPlatformSpend > 0 ? (metaSpend / totalPlatformSpend) * 100 : 55;
@@ -233,13 +233,13 @@ export default function LaurastarOverview() {
     ? windsorData.filter((r) => isMetaSource(r.source)).reduce((s, r) => s + (Number(r.revenue) || 0), 0)
     : kpis.revenue * client.metaAllocation;
   const googleRevenue = isLive
-    ? windsorData.filter((r) => r.source !== "facebook" && r.source !== "meta" && r.source !== "instagram").reduce((s, r) => s + (Number(r.revenue) || 0), 0)
+    ? windsorData.filter((r) => isGoogleSource(r.source)).reduce((s, r) => s + (Number(r.revenue) || 0), 0)
     : kpis.revenue * client.googleAllocation;
   const metaConversions = isLive
     ? windsorData.filter((r) => isMetaSource(r.source)).reduce((s, r) => s + (Number(r.conversions) || 0), 0)
     : Math.round(kpis.conversions * client.metaAllocation);
   const googleConversions = isLive
-    ? windsorData.filter((r) => r.source !== "facebook" && r.source !== "meta" && r.source !== "instagram").reduce((s, r) => s + (Number(r.conversions) || 0), 0)
+    ? windsorData.filter((r) => isGoogleSource(r.source)).reduce((s, r) => s + (Number(r.conversions) || 0), 0)
     : Math.round(kpis.conversions * client.googleAllocation);
 
   // Prev formatted

@@ -11,6 +11,7 @@ import { useDateRange } from "@/lib/date-range-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { getClientCreatives } from "@/lib/mock-data";
 import type { WindsorRow } from "@/lib/windsor";
+import { isGoogleSource } from "@/lib/windsor";
 import type { CreativePlatform } from "@/lib/types";
 
 // Aggregator + scoring
@@ -89,7 +90,7 @@ export default function CreativeLabPage() {
   // which includes ad_headlines, ad_descriptions, keyword_text at the ad level.
   const googleAdsRows = useMemo(() => {
     if (!windsorData) return [];
-    return windsorData.filter((r) => r.source === "google_ads");
+    return windsorData.filter((r) => isGoogleSource(r.source));
   }, [windsorData]);
 
   // TikTok creatives (if client has TikTok accounts)

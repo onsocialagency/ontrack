@@ -169,7 +169,7 @@ function generateMockRows(): WindsorRow[] {
           conversions,
           revenue: conversions * rand(40, 120),
           thumbnail_url:
-            mock.source === "facebook"
+            isMetaSource(mock.source)
               ? `https://placehold.co/64x64/1a1a2e/c8a96e?text=${encodeURIComponent(adName.slice(0, 2))}`
               : "",
         });
