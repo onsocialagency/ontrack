@@ -328,8 +328,6 @@ export default function MinistryOverview() {
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
 
-        <SuggestionWidget />
-
         <DataBlur isBlurred={dataSource !== "windsor" && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
         {/* ── SECTION 1: KPI Strip ── */}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
@@ -723,6 +721,8 @@ export default function MinistryOverview() {
             </span>
           </div>
         </div>
+
+        <SuggestionWidget />
         </DataBlur>
       </div>
 

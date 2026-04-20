@@ -27,7 +27,7 @@ import { MetricCell } from "@/components/ui/metric-cell";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
   DollarSign, Target, Eye, MousePointer, Percent,
-  AlertTriangle, Info,
+  AlertTriangle, Info, ChevronDown,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -206,6 +206,7 @@ export default function IrgOverview() {
   const [kpiDetail, setKpiDetail] = useState<KpiDetailData | null>(null);
   const closeKpiDetail = useCallback(() => setKpiDetail(null), []);
   const [showGaps, setShowGaps] = useState(true);
+  const [gapsOpen, setGapsOpen] = useState(false);
 
   const { data: windsorData, source: dataSource, loading } = useWindsor<WindsorRow[]>({
     clientSlug: "irg",
@@ -362,26 +363,56 @@ export default function IrgOverview() {
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
 
-        <SuggestionWidget />
-
         <DataBlur isBlurred={dataSource !== "windsor" && !loading} isLoading={loading} className="space-y-4 sm:space-y-5">
-        {/* ── Data Gap Warnings ── */}
-        {showGaps && (
-          <div className="space-y-2">
-            {IRG_DATA_GAPS.filter((g) => g.severity === "warning").slice(0, 2).map((gap) => (
-              <div key={gap.id} className="flex items-start gap-3 px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl bg-amber-500/[0.08] border border-amber-500/[0.15]">
-                <AlertTriangle size={14} className="text-amber-400 mt-0.5 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-amber-300">{gap.title}</p>
-                  <p className="text-[11px] text-amber-400/70 mt-0.5">{gap.detail}</p>
-                </div>
-                <button onClick={() => setShowGaps(false)} className="text-amber-400/50 hover:text-amber-400 text-xs flex-shrink-0">
+        {/* ── Data Gap Warnings (collapsible) ── */}
+        {showGaps && (() => {
+          const gaps = IRG_DATA_GAPS.filter((g) => g.severity === "warning").slice(0, 2);
+          if (gaps.length === 0) return null;
+          return (
+            <div className="rounded-xl bg-amber-500/[0.08] border border-amber-500/[0.15] overflow-hidden">
+              <div className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3">
+                <button
+                  type="button"
+                  onClick={() => setGapsOpen((v) => !v)}
+                  className="flex items-center gap-2 flex-1 min-w-0 text-left"
+                  aria-expanded={gapsOpen}
+                  aria-controls="irg-data-gaps-body"
+                >
+                  <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
+                  <span className="text-xs font-semibold text-amber-300 truncate">
+                    {gaps.length} data gap{gaps.length > 1 ? "s" : ""} to review
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    className={cn(
+                      "text-amber-400/70 flex-shrink-0 transition-transform ml-auto",
+                      gapsOpen && "rotate-180",
+                    )}
+                  />
+                </button>
+                <button
+                  onClick={() => setShowGaps(false)}
+                  className="text-amber-400/50 hover:text-amber-400 text-xs flex-shrink-0"
+                >
                   Dismiss
                 </button>
               </div>
-            ))}
-          </div>
-        )}
+              {gapsOpen && (
+                <div
+                  id="irg-data-gaps-body"
+                  className="border-t border-amber-500/[0.15] divide-y divide-amber-500/[0.12]"
+                >
+                  {gaps.map((gap) => (
+                    <div key={gap.id} className="px-3 sm:px-4 py-2.5 sm:py-3">
+                      <p className="text-xs font-semibold text-amber-300">{gap.title}</p>
+                      <p className="text-[11px] text-amber-400/70 mt-0.5">{gap.detail}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* ── KPI Grid ── */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
@@ -817,6 +848,8 @@ export default function IrgOverview() {
             ))}
           </div>
         </div>
+
+        <SuggestionWidget />
         </DataBlur>
       </div>
 

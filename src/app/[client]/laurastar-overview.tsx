@@ -285,7 +285,6 @@ export default function LaurastarOverview() {
       <Header title={client.name} showAttribution dataBadge={{ loading: windsorLoading, isLive: !!isLive }} />
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
-        <SuggestionWidget />
         <DataBlur isBlurred={!isLive && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
 
         {/* ── KPI Grid (matches default overview) ── */}
@@ -665,6 +664,7 @@ export default function LaurastarOverview() {
           </div>
         </div>
 
+        <SuggestionWidget />
         </DataBlur>
       </div>
 
