@@ -70,7 +70,15 @@ export interface WindsorRow {
    *  Matches Meta Ads Manager's default "CTR (link click-through rate)". */
   link_clicks?: number;
   conversions: number;
+  /** Google only: all_conversions (primary + secondary/imported events).
+   *  Exposed so aggregators can choose to fall back when a client's
+   *  primary-conversion setup is empty (e.g. Ministry's GTM-imported leads).
+   *  DO NOT SUM for clients whose Google UI "Conversions" column is correct —
+   *  this inflates totals by secondary events (add_to_cart, page_view, etc). */
+  all_conversions?: number;
   revenue: number;
+  /** Google only: all_conversion_value counterpart to all_conversions. */
+  all_conversion_value?: number;
   // Video metrics (Facebook)
   video_plays?: number;
   video_thruplay?: number;
@@ -256,24 +264,25 @@ function normalizeRow(raw: Record<string, unknown>, source: string): WindsorRow 
     // `all_conversions` = primary + secondary/imported actions (e.g. GTM
     //   imports, store visits, phone calls, lead form fills marked secondary).
     //
-    // We use primary by default so totals match the Google UI. Accounts that
-    // only log their important actions as "secondary" (e.g. The Ministry's
-    // GTM-imported lead forms) fall back to all_conversions — but ONLY when
-    // the row has zero primary AND non-zero all, to avoid the per-row
-    // Frankenstein totals the old logic produced.
+    // We emit PRIMARY conversions only in `conversions` so totals match the
+    // Google Ads UI "Conversions" column exactly. `all_conversions` is also
+    // exposed on the row for aggregators that want an account-level fallback
+    // (e.g. Ministry: GTM-imported lead forms logged as secondary).
     //
-    // We deliberately do NOT round per row. Google data-driven attribution
-    // reports fractional conversions (e.g. 0.4/day). Rounding every daily
-    // row before summing systematically under-counts over long date ranges.
-    // Downstream display code formats the final total.
-    const primaryConv = Number(raw.conversions) || 0;
-    const allConv = Number(raw.all_conversions) || 0;
-    conversions = primaryConv > 0 ? primaryConv : allConv;
-
-    const primaryRev = Number(raw.conversion_value) || 0;
-    const allRev = Number(raw.all_conversion_value) || 0;
-    revenue = primaryRev > 0 ? primaryRev : allRev;
+    // The previous per-row fallback (`primary > 0 ? primary : all`) caused
+    // totals like Laurastar's 159 when the UI says 16 — any day with 0
+    // primary silently swapped in all_conversions, which counts secondary
+    // events (add_to_cart, page_view, etc).
+    //
+    // We deliberately do NOT round per row — Google data-driven attribution
+    // reports fractional conversions (e.g. 0.4/day) and rounding systematically
+    // under-counts over long ranges. Downstream display formats the final total.
+    conversions = Number(raw.conversions) || 0;
+    revenue = Number(raw.conversion_value) || 0;
   }
+
+  const allConvRaw = source !== "facebook" ? Number(raw.all_conversions) : NaN;
+  const allConvValueRaw = source !== "facebook" ? Number(raw.all_conversion_value) : NaN;
 
   return {
     date: String(raw.date_start || raw.date || ""),
@@ -286,7 +295,9 @@ function normalizeRow(raw: Record<string, unknown>, source: string): WindsorRow 
     clicks,
     link_clicks: linkClicks,
     conversions,
+    all_conversions: Number.isFinite(allConvRaw) ? allConvRaw : undefined,
     revenue,
+    all_conversion_value: Number.isFinite(allConvValueRaw) ? allConvValueRaw : undefined,
   };
 }
 

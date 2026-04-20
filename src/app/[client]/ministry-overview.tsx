@@ -132,7 +132,8 @@ function aggregateWindsor(rows: WindsorRow[]) {
   let metaSpend = 0,
     googleSpend = 0,
     metaConversions = 0,
-    googleConversions = 0;
+    googleConversions = 0,
+    googleAllConversions = 0;
 
   for (const r of filtered) {
     const spend = Number(r.spend) || 0;
@@ -144,20 +145,36 @@ function aggregateWindsor(rows: WindsorRow[]) {
     } else if (platform === "google") {
       googleSpend += spend;
       googleConversions += conv;
+      googleAllConversions += Number(r.all_conversions) || 0;
     }
+  }
+
+  // Ministry uses GTM-imported lead forms logged as SECONDARY conversions in
+  // Google Ads, so the primary "Conversions" column is always 0. When that's
+  // the case for the whole range, fall back to all_conversions at the total
+  // level. We intentionally do NOT do this per-row (that inflates totals like
+  // Laurastar's 159 vs actual 16 from secondary events on otherwise-zero days).
+  if (googleConversions === 0 && googleAllConversions > 0) {
+    googleConversions = googleAllConversions;
   }
 
   const totalSpend = metaSpend + googleSpend;
   const totalConversions = metaConversions + googleConversions;
   const blendedCpl = totalConversions > 0 ? +(totalSpend / totalConversions).toFixed(2) : 0;
 
-  // Daily aggregation
+  // Daily aggregation. Mirror the total-level fallback: if Ministry's Google
+  // primary conversions are empty for the range, use all_conversions for the
+  // daily chart so the sparkline isn't flat-zero.
+  const useAllConvFallback = googleConversions === googleAllConversions && googleAllConversions > 0;
   const byDate: Record<string, { date: string; spend: number; conversions: number }> = {};
   for (const r of filtered) {
     if (!r.date) continue;
     if (!byDate[r.date]) byDate[r.date] = { date: r.date, spend: 0, conversions: 0 };
     byDate[r.date].spend += Number(r.spend) || 0;
-    byDate[r.date].conversions += Number(r.conversions) || 0;
+    const rowConv = Number(r.conversions) || 0;
+    const rowAll = Number(r.all_conversions) || 0;
+    const isGoogle = classifyPlatform(r.source) === "google";
+    byDate[r.date].conversions += isGoogle && useAllConvFallback ? rowAll : rowConv;
   }
   const daily = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
 
