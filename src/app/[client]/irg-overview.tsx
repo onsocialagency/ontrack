@@ -12,6 +12,7 @@ import { useLocale } from "@/lib/locale-context";
 import { useVenue } from "@/lib/venue-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import type { WindsorRow } from "@/lib/windsor";
+import { sumConversions, rowConversions } from "@/lib/windsor";
 import {
   IRG_BRANDS,
   IRG_BRAND_ORDER,
@@ -102,6 +103,11 @@ function aggregateByBrand(rows: WindsorRow[]) {
   const sevenDaysAgo = new Date(today);
   sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
+  // Decide once per range whether to use the Google primary→all_conversions
+  // fallback. Applied uniformly to every campaign/brand bucket below so the
+  // IRG numbers can't diverge from the KPI totals.
+  const useAllConvFallback = sumConversions(rows).usedGoogleAllFallback;
+
   for (const r of rows) {
     const key = `${r.campaign}__${r.account_id || ""}`;
     if (!campaignMap[key]) {
@@ -118,11 +124,12 @@ function aggregateByBrand(rows: WindsorRow[]) {
         hasRecentSpend: false,
       };
     }
+    const rc = rowConversions(r, useAllConvFallback);
     campaignMap[key].spend += Number(r.spend) || 0;
     campaignMap[key].impressions += Number(r.impressions) || 0;
     campaignMap[key].clicks += Number(r.clicks) || 0;
-    campaignMap[key].conversions += Number(r.conversions) || 0;
-    campaignMap[key].revenue += Number(r.revenue) || 0;
+    campaignMap[key].conversions += rc.conversions;
+    campaignMap[key].revenue += rc.revenue;
     if (r.date && r.date > campaignMap[key].latestDate) {
       campaignMap[key].latestDate = r.date;
     }
@@ -182,6 +189,7 @@ function aggregateByBrand(rows: WindsorRow[]) {
 }
 
 function aggregateDaily(rows: WindsorRow[], fmtDate: (iso: string) => string) {
+  const useAllConvFallback = sumConversions(rows).usedGoogleAllFallback;
   const byDate: Record<string, { date: string; spend: number; impressions: number; clicks: number; conversions: number }> = {};
   for (const r of rows) {
     const d = r.date;
@@ -190,7 +198,7 @@ function aggregateDaily(rows: WindsorRow[], fmtDate: (iso: string) => string) {
     byDate[d].spend += Number(r.spend) || 0;
     byDate[d].impressions += Number(r.impressions) || 0;
     byDate[d].clicks += Number(r.clicks) || 0;
-    byDate[d].conversions += Number(r.conversions) || 0;
+    byDate[d].conversions += rowConversions(r, useAllConvFallback).conversions;
   }
   return Object.values(byDate)
     .sort((a, b) => a.date.localeCompare(b.date))

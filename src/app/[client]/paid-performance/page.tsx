@@ -10,7 +10,7 @@ import { useVenue } from "@/lib/venue-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
-import { classifyPlatform, isMetaSource } from "@/lib/windsor";
+import { classifyPlatform, isMetaSource, sumConversions } from "@/lib/windsor";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { MetricCell } from "@/components/ui/metric-cell";
 import {
@@ -186,8 +186,11 @@ function aggregate(rows: WindsorRow[]): Omit<AggregatedRow, "campaign" | "source
   const spend = rows.reduce((s, r) => s + (Number(r.spend) || 0), 0);
   const impressions = rows.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
   const clicks = rows.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
-  const conversions = rows.reduce((s, r) => s + (Number(r.conversions) || 0), 0);
-  const revenue = rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
+  // Shared summation — total-level fallback to Google all_conversions when
+  // primary is 0 across the range (see sumConversions in lib/windsor.ts).
+  const c = sumConversions(rows);
+  const conversions = c.total;
+  const revenue = c.revenue;
 
   // For Meta rows, CTR should match Ads Manager's default (link CTR).
   // Windsor's `clicks` field is "all clicks" (includes reactions/comments/profile taps);

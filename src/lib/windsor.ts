@@ -44,6 +44,77 @@ export const isGoogleSource = (source: string | null | undefined): boolean =>
 export const isTikTokSource = (source: string | null | undefined): boolean =>
   classifyPlatform(source) === "tiktok";
 
+/**
+ * Sum conversions + revenue from a set of Windsor rows, applying the Google
+ * primary→all_conversions fallback at the TOTAL level (never per-row).
+ *
+ * - Meta rows: primary `conversions`/`revenue` only (no secondary concept).
+ * - Google rows: primary by default. If primary is zero across the entire
+ *   range but all_conversions is non-zero, fall back to all_conversions. This
+ *   covers clients like Ministry (GTM-imported lead forms logged as secondary)
+ *   without contaminating clients whose primary column is correct (Laurastar).
+ *
+ * Use this in every client aggregator that mixes Meta + Google rows so the
+ * behaviour is consistent everywhere.
+ */
+export function sumConversions(rows: WindsorRow[]): {
+  total: number;
+  meta: number;
+  google: number;
+  revenue: number;
+  metaRevenue: number;
+  googleRevenue: number;
+  usedGoogleAllFallback: boolean;
+} {
+  let meta = 0, google = 0, googleAll = 0;
+  let metaRevenue = 0, googleRevenue = 0, googleAllRevenue = 0;
+  for (const r of rows) {
+    const conv = Number(r.conversions) || 0;
+    const rev = Number(r.revenue) || 0;
+    const platform = classifyPlatform(r.source);
+    if (platform === "meta") {
+      meta += conv;
+      metaRevenue += rev;
+    } else if (platform === "google") {
+      google += conv;
+      googleRevenue += rev;
+      googleAll += Number(r.all_conversions) || 0;
+      googleAllRevenue += Number(r.all_conversion_value) || 0;
+    }
+  }
+  const usedGoogleAllFallback = google === 0 && googleAll > 0;
+  if (usedGoogleAllFallback) {
+    google = googleAll;
+    if (googleRevenue === 0) googleRevenue = googleAllRevenue;
+  }
+  return {
+    total: meta + google,
+    meta,
+    google,
+    revenue: metaRevenue + googleRevenue,
+    metaRevenue,
+    googleRevenue,
+    usedGoogleAllFallback,
+  };
+}
+
+/** Row-level helper mirroring sumConversions, for daily aggregation. Pass
+ *  the `usedGoogleAllFallback` flag from the totals pass so daily buckets
+ *  stay consistent with range totals. */
+export function rowConversions(r: WindsorRow, useGoogleAllFallback: boolean): { conversions: number; revenue: number } {
+  const platform = classifyPlatform(r.source);
+  if (platform === "google" && useGoogleAllFallback) {
+    return {
+      conversions: Number(r.all_conversions) || 0,
+      revenue: Number(r.all_conversion_value) || Number(r.revenue) || 0,
+    };
+  }
+  return {
+    conversions: Number(r.conversions) || 0,
+    revenue: Number(r.revenue) || 0,
+  };
+}
+
 
 interface WindsorParams {
   apiKey: string;

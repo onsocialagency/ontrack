@@ -13,7 +13,7 @@ import { useDateRange } from "@/lib/date-range-context";
 import { useLocale } from "@/lib/locale-context";
 import { getClientKPIs, getClientDailyMetrics, getClientCreatives } from "@/lib/mock-data";
 import type { WindsorRow } from "@/lib/windsor";
-import { isMetaSource, isGoogleSource } from "@/lib/windsor";
+import { isMetaSource, isGoogleSource, sumConversions, rowConversions } from "@/lib/windsor";
 import { formatCurrency, formatNumber, formatROAS, getBillingPeriod } from "@/lib/utils";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
@@ -41,20 +41,13 @@ function aggregateWindsorKPIs(rows: WindsorRow[]) {
   const spend = rows.reduce((s, r) => s + (Number(r.spend) || 0), 0);
   const impressions = rows.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
   const clicks = rows.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
-  let metaRevenue = 0, googleRevenue = 0;
-  let metaConversions = 0, googleConversions = 0;
-  for (const r of rows) {
-    const rev = Number(r.revenue) || 0;
-    const conv = Number(r.conversions) || 0;
-    if (isMetaSource(r.source)) {
-      metaRevenue += rev; metaConversions += conv;
-    } else {
-      googleRevenue += rev; googleConversions += conv;
-    }
-  }
-  const revenue = metaRevenue + googleRevenue;
-  const conversions = metaConversions + googleConversions;
-  const platformReportedRevenue = metaRevenue + googleRevenue;
+  // Uses the shared primary→all_conversions fallback (total level, never per
+  // row) so Laurastar matches the Google Ads UI exactly while still covering
+  // any account whose primary column is unconfigured.
+  const c = sumConversions(rows);
+  const revenue = c.revenue;
+  const conversions = c.total;
+  const platformReportedRevenue = c.metaRevenue + c.googleRevenue;
   const roas = spend > 0 ? revenue / spend : 0;
   const cpa = conversions > 0 ? spend / conversions : 0;
   const mer = spend > 0 ? revenue / spend : 0;
@@ -62,14 +55,16 @@ function aggregateWindsorKPIs(rows: WindsorRow[]) {
 }
 
 function aggregateWindsorDaily(rows: WindsorRow[], fmtDate: (iso: string) => string) {
+  const useFallback = sumConversions(rows).usedGoogleAllFallback;
   const byDate: Record<string, { date: string; spend: number; revenue: number; conversions: number; impressions: number }> = {};
   for (const r of rows) {
     const d = r.date;
     if (!d) continue;
     if (!byDate[d]) byDate[d] = { date: d, spend: 0, revenue: 0, conversions: 0, impressions: 0 };
+    const rc = rowConversions(r, useFallback);
     byDate[d].spend += Number(r.spend) || 0;
-    byDate[d].revenue += Number(r.revenue) || 0;
-    byDate[d].conversions += Number(r.conversions) || 0;
+    byDate[d].revenue += rc.revenue;
+    byDate[d].conversions += rc.conversions;
     byDate[d].impressions += Number(r.impressions) || 0;
   }
   return Object.values(byDate)
@@ -235,11 +230,14 @@ export default function LaurastarOverview() {
   const googleRevenue = isLive
     ? windsorData.filter((r) => isGoogleSource(r.source)).reduce((s, r) => s + (Number(r.revenue) || 0), 0)
     : kpis.revenue * client.googleAllocation;
-  const metaConversions = isLive
-    ? windsorData.filter((r) => isMetaSource(r.source)).reduce((s, r) => s + (Number(r.conversions) || 0), 0)
+  // Uses shared sumConversions so per-platform breakdowns match the KPI total
+  // (and respect the Google primary→all_conversions total-level fallback).
+  const liveConv = isLive ? sumConversions(windsorData) : null;
+  const metaConversions = liveConv
+    ? liveConv.meta
     : Math.round(kpis.conversions * client.metaAllocation);
-  const googleConversions = isLive
-    ? windsorData.filter((r) => isGoogleSource(r.source)).reduce((s, r) => s + (Number(r.conversions) || 0), 0)
+  const googleConversions = liveConv
+    ? liveConv.google
     : Math.round(kpis.conversions * client.googleAllocation);
 
   // Prev formatted

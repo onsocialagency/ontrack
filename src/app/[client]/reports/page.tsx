@@ -9,6 +9,7 @@ import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
+import { sumConversions, rowConversions } from "@/lib/windsor";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
@@ -18,10 +19,13 @@ import { FileText, Send, Download, Clock, Loader2, Trash2, Eye } from "lucide-re
 
 function aggregateKPIs(rows: WindsorRow[]) {
   const spend = rows.reduce((s, r) => s + (Number(r.spend) || 0), 0);
-  const revenue = rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
   const impressions = rows.reduce((s, r) => s + (Number(r.impressions) || 0), 0);
   const clicks = rows.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
-  const conversions = rows.reduce((s, r) => s + (Number(r.conversions) || 0), 0);
+  // Shared conversion summation with Google primary→all_conversions fallback
+  // (see lib/windsor.ts). Keeps reports consistent with overview pages.
+  const c = sumConversions(rows);
+  const revenue = c.revenue;
+  const conversions = c.total;
   return {
     spend: +spend.toFixed(2),
     revenue: +revenue.toFixed(2),
@@ -35,15 +39,17 @@ function aggregateKPIs(rows: WindsorRow[]) {
 }
 
 function aggregateCampaigns(rows: WindsorRow[]) {
+  const useAllConvFallback = sumConversions(rows).usedGoogleAllFallback;
   const map: Record<string, { name: string; spend: number; revenue: number; conversions: number; roas: number }> = {};
   for (const r of rows) {
     const key = `${r.source}::${r.campaign}`;
     if (!map[key]) {
       map[key] = { name: r.campaign, spend: 0, revenue: 0, conversions: 0, roas: 0 };
     }
+    const rc = rowConversions(r, useAllConvFallback);
     map[key].spend += Number(r.spend) || 0;
-    map[key].revenue += Number(r.revenue) || 0;
-    map[key].conversions += Number(r.conversions) || 0;
+    map[key].revenue += rc.revenue;
+    map[key].conversions += rc.conversions;
   }
   return Object.values(map)
     .map((c) => ({ ...c, roas: c.spend > 0 ? +(c.revenue / c.spend).toFixed(2) : 0 }))

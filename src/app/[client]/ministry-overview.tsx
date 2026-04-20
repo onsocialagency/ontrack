@@ -11,7 +11,7 @@ import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow } from "@/lib/windsor";
-import { classifyPlatform } from "@/lib/windsor";
+import { classifyPlatform, sumConversions, rowConversions } from "@/lib/windsor";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
@@ -129,52 +129,34 @@ function generatePrevMockData() {
 function aggregateWindsor(rows: WindsorRow[]) {
   const filtered = filterValidConversions(rows as Record<string, unknown>[]) as unknown as WindsorRow[];
 
-  let metaSpend = 0,
-    googleSpend = 0,
-    metaConversions = 0,
-    googleConversions = 0,
-    googleAllConversions = 0;
-
+  let metaSpend = 0, googleSpend = 0;
   for (const r of filtered) {
     const spend = Number(r.spend) || 0;
-    const conv = Number(r.conversions) || 0;
     const platform = classifyPlatform(r.source);
-    if (platform === "meta") {
-      metaSpend += spend;
-      metaConversions += conv;
-    } else if (platform === "google") {
-      googleSpend += spend;
-      googleConversions += conv;
-      googleAllConversions += Number(r.all_conversions) || 0;
-    }
+    if (platform === "meta") metaSpend += spend;
+    else if (platform === "google") googleSpend += spend;
   }
 
-  // Ministry uses GTM-imported lead forms logged as SECONDARY conversions in
-  // Google Ads, so the primary "Conversions" column is always 0. When that's
-  // the case for the whole range, fall back to all_conversions at the total
-  // level. We intentionally do NOT do this per-row (that inflates totals like
-  // Laurastar's 159 vs actual 16 from secondary events on otherwise-zero days).
-  if (googleConversions === 0 && googleAllConversions > 0) {
-    googleConversions = googleAllConversions;
-  }
+  // Shared conversion summation. Applies the primary→all_conversions fallback
+  // at the TOTAL level (never per-row) so Ministry's GTM-imported lead-form
+  // setup still surfaces numbers when primary is 0 for the whole range.
+  const convSummary = sumConversions(filtered);
+  const metaConversions = convSummary.meta;
+  const googleConversions = convSummary.google;
 
   const totalSpend = metaSpend + googleSpend;
   const totalConversions = metaConversions + googleConversions;
   const blendedCpl = totalConversions > 0 ? +(totalSpend / totalConversions).toFixed(2) : 0;
 
-  // Daily aggregation. Mirror the total-level fallback: if Ministry's Google
-  // primary conversions are empty for the range, use all_conversions for the
-  // daily chart so the sparkline isn't flat-zero.
-  const useAllConvFallback = googleConversions === googleAllConversions && googleAllConversions > 0;
+  // Daily aggregation mirrors the total-level fallback so the sparkline stays
+  // consistent with KPI totals (see rowConversions).
+  const useAllConvFallback = convSummary.usedGoogleAllFallback;
   const byDate: Record<string, { date: string; spend: number; conversions: number }> = {};
   for (const r of filtered) {
     if (!r.date) continue;
     if (!byDate[r.date]) byDate[r.date] = { date: r.date, spend: 0, conversions: 0 };
     byDate[r.date].spend += Number(r.spend) || 0;
-    const rowConv = Number(r.conversions) || 0;
-    const rowAll = Number(r.all_conversions) || 0;
-    const isGoogle = classifyPlatform(r.source) === "google";
-    byDate[r.date].conversions += isGoogle && useAllConvFallback ? rowAll : rowConv;
+    byDate[r.date].conversions += rowConversions(r, useAllConvFallback).conversions;
   }
   const daily = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
 
