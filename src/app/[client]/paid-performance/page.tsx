@@ -188,13 +188,28 @@ function aggregate(rows: WindsorRow[]): Omit<AggregatedRow, "campaign" | "source
   const clicks = rows.reduce((s, r) => s + (Number(r.clicks) || 0), 0);
   const conversions = rows.reduce((s, r) => s + (Number(r.conversions) || 0), 0);
   const revenue = rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0);
+
+  // For Meta rows, CTR should match Ads Manager's default (link CTR).
+  // Windsor's `clicks` field is "all clicks" (includes reactions/comments/profile taps);
+  // `inline_link_clicks` is the correct numerator for link CTR. Google has no
+  // such split, so we fall back to total clicks for Google (Search/Shopping/PMax).
+  let ctrNumerator = 0;
+  for (const r of rows) {
+    if (r.source === "facebook" && typeof r.link_clicks === "number" && r.link_clicks >= 0) {
+      ctrNumerator += r.link_clicks;
+    } else {
+      ctrNumerator += Number(r.clicks) || 0;
+    }
+  }
+  const ctr = impressions > 0 ? (ctrNumerator / impressions) * 100 : 0;
+
   return {
     spend,
     impressions,
     clicks,
     conversions,
     revenue,
-    ctr: impressions > 0 ? (clicks / impressions) * 100 : 0,
+    ctr,
     cpc: clicks > 0 ? spend / clicks : 0,
     cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
     cpl: conversions > 0 ? spend / conversions : 0,
@@ -764,6 +779,9 @@ export default function PaidPerformancePage() {
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div className="px-3 py-2 border-t border-white/[0.06] text-[10px] text-[#64748B]">
+            CTR: Meta uses link clicks (matches Ads Manager default). Google uses total clicks.
           </div>
         </div>
 

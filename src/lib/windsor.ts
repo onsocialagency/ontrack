@@ -66,6 +66,9 @@ export interface WindsorRow {
   spend: number;
   impressions: number;
   clicks: number;
+  /** Meta only: link clicks (excludes likes/comments/reactions/profile taps).
+   *  Matches Meta Ads Manager's default "CTR (link click-through rate)". */
+  link_clicks?: number;
   conversions: number;
   revenue: number;
   // Video metrics (Facebook)
@@ -220,6 +223,11 @@ function normalizeRow(raw: Record<string, unknown>, source: string): WindsorRow 
   const spend = Number(raw.spend) || 0;
   const impressions = Number(raw.impressions) || 0;
   const clicks = Number(raw.clicks) || 0;
+  // Meta only — used to compute link CTR that matches Ads Manager's default.
+  const linkClicksRaw = Number(raw.inline_link_clicks);
+  const linkClicks = source === "facebook" && Number.isFinite(linkClicksRaw) && linkClicksRaw > 0
+    ? linkClicksRaw
+    : undefined;
 
   let conversions = 0;
   let revenue = 0;
@@ -265,6 +273,7 @@ function normalizeRow(raw: Record<string, unknown>, source: string): WindsorRow 
     spend,
     impressions,
     clicks,
+    link_clicks: linkClicks,
     conversions,
     revenue,
   };
@@ -280,6 +289,7 @@ const FACEBOOK_CAMPAIGN_FIELDS = [
   "spend",
   "impressions",
   "clicks",
+  "inline_link_clicks",
   "actions",
   "action_values",
   "frequency",
@@ -313,6 +323,7 @@ const FACEBOOK_CREATIVE_FIELDS = [
   "spend",
   "impressions",
   "clicks",
+  "inline_link_clicks",
   "actions",
   "action_values",
   "frequency",
