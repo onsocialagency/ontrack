@@ -250,14 +250,25 @@ function normalizeRow(raw: Record<string, unknown>, source: string): WindsorRow 
     revenue = extractActionValue(actionValues, FB_REVENUE_ACTIONS);
   } else {
     // Google Ads: direct fields
-    // Use `conversions` (primary actions) first, but fall back to `all_conversions`
-    // which includes secondary/imported conversion actions (e.g. GTM-imported leads).
-    // The Ministry's Google lead form conversions are marked as secondary actions,
-    // so they only appear in `all_conversions`.
+    //
+    // `conversions` = primary conversion actions (matches Google Ads UI
+    //   default "Conversions" column).
+    // `all_conversions` = primary + secondary/imported actions (e.g. GTM
+    //   imports, store visits, phone calls, lead form fills marked secondary).
+    //
+    // We use primary by default so totals match the Google UI. Accounts that
+    // only log their important actions as "secondary" (e.g. The Ministry's
+    // GTM-imported lead forms) fall back to all_conversions — but ONLY when
+    // the row has zero primary AND non-zero all, to avoid the per-row
+    // Frankenstein totals the old logic produced.
+    //
+    // We deliberately do NOT round per row. Google data-driven attribution
+    // reports fractional conversions (e.g. 0.4/day). Rounding every daily
+    // row before summing systematically under-counts over long date ranges.
+    // Downstream display code formats the final total.
     const primaryConv = Number(raw.conversions) || 0;
     const allConv = Number(raw.all_conversions) || 0;
-    // Round: Google PMAX/data-driven attribution reports fractional conversions
-    conversions = Math.round(primaryConv > 0 ? primaryConv : allConv);
+    conversions = primaryConv > 0 ? primaryConv : allConv;
 
     const primaryRev = Number(raw.conversion_value) || 0;
     const allRev = Number(raw.all_conversion_value) || 0;
