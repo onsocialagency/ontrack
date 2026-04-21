@@ -12,6 +12,7 @@ import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { HubSpotContact, WindsorRow } from "@/lib/windsor";
 import { classifyPlatform, sumConversions, rowConversions } from "@/lib/windsor";
+import { reconcileLeads } from "@/lib/leadReconciliation";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
@@ -214,16 +215,26 @@ export default function MinistryOverview() {
     dateTo: prevDateTo,
   });
 
-  // HubSpot confirmed leads for the same range — headline metric for Ministry.
+  // HubSpot confirmed leads for the same range. The headline metric is the
+  // ad-verified subset (contacts we can cross-reference to a live campaign),
+  // not the raw CRM total.
   const { data: hubspotData } = useWindsor<HubSpotContact[]>({
     clientSlug,
     type: "hubspot",
     days,
     ...(preset === "Custom" ? { dateFrom, dateTo } : {}),
   });
-  const hubspotConfirmed = hubspotData?.length ?? 0;
 
   const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
+
+  // Verified ad leads = HubSpot contacts cross-referenced to a live Windsor
+  // campaign (hsa_cam / utm_campaign match, or Facebook Lead Ads form).
+  const hubspotReconciliation = useMemo(
+    () => reconcileLeads(hubspotData ?? [], windsorData ?? []),
+    [hubspotData, windsorData],
+  );
+  const verifiedAdLeads = hubspotReconciliation.totalAdVerified;
+  const hubspotTotal = hubspotReconciliation.totalHubSpotLeads;
 
   // Aggregate current period
   const current = useMemo(() => {
@@ -375,25 +386,25 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard
-            title="HubSpot Confirmed"
-            value={formatNumber(hubspotConfirmed)}
+            title="Verified Ad Leads"
+            value={formatNumber(verifiedAdLeads)}
             delta={0}
             icon={<Users size={12} />}
-            tooltip="Contacts created in HubSpot during this period — the headline number"
+            tooltip={`Leads cross-referenced to a live campaign (via hsa_cam / utm_campaign / FB Lead Ads form). HubSpot total this period: ${formatNumber(hubspotTotal)}.`}
             accentColor={ACCENT}
           />
           <KpiCard
-            title="Blended CPL"
-            value={hubspotConfirmed > 0 ? formatCurrency(current.totalSpend / hubspotConfirmed, "GBP") : "—"}
+            title="Verified CPL"
+            value={verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, "GBP") : "—"}
             delta={deltas.cpl}
             invertDelta
             icon={<TrendingDown size={12} />}
-            tooltip="Total spend / HubSpot-confirmed leads. Falls back to platform-claimed when HubSpot has no data."
+            tooltip="Total ad spend ÷ verified ad leads. The true cost per lead we can defend."
             sparkline={sparklines.spend}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
-              "Blended CPL", <TrendingDown size={18} />,
-              hubspotConfirmed > 0 ? formatCurrency(current.totalSpend / hubspotConfirmed, "GBP") : formatCurrency(current.blendedCpl, "GBP"),
+              "Verified CPL", <TrendingDown size={18} />,
+              verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, "GBP") : formatCurrency(current.blendedCpl, "GBP"),
               "spend", platformBreakdown, ACCENT,
               (v) => formatCurrency(v, "GBP"),
             ))}
@@ -434,8 +445,8 @@ export default function MinistryOverview() {
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4 -mt-1">
           <div />
           <p className="text-[9px] text-[#94A3B8]/60 pl-4">Platform reported</p>
-          <p className="text-[9px] pl-4" style={{ color: MINISTRY_BRAND.accentColor }}>CRM confirmed</p>
-          <p className="text-[9px] text-[#94A3B8]/60 pl-4">Spend ÷ CRM</p>
+          <p className="text-[9px] pl-4" style={{ color: MINISTRY_BRAND.accentColor }}>Verified</p>
+          <p className="text-[9px] text-[#94A3B8]/60 pl-4">Spend ÷ Verified</p>
           <div />
           <div />
         </div>

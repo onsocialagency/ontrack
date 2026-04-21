@@ -108,21 +108,21 @@ export default function CrmReconciliationPage() {
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
 
-        {/* ── Top Three Cards ── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+        {/* ── Top Four Cards — ordered by "hardness" of the evidence ── */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
           {/* Meta Reported */}
           <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-1">
               <span className="w-2 h-2 rounded-full bg-blue-500" />
-              <span className="text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
-                Meta Reported
+              <span className="text-[10px] sm:text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
+                Meta Claimed
               </span>
             </div>
-            <p className="text-4xl font-bold text-white mt-2">
+            <p className="text-3xl sm:text-4xl font-bold text-white mt-2">
               {formatNumber(totals.meta)}
             </p>
-            <p className="text-xs text-[#94A3B8] mt-2">
-              Post-click + post-view (7-day window)
+            <p className="text-[10px] sm:text-xs text-[#94A3B8] mt-2">
+              Meta pixel — 7d click / 1d view
             </p>
           </div>
 
@@ -130,38 +130,50 @@ export default function CrmReconciliationPage() {
           <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
-                Google Reported
+              <span className="text-[10px] sm:text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
+                Google Claimed
               </span>
             </div>
-            <p className="text-4xl font-bold text-white mt-2">
+            <p className="text-3xl sm:text-4xl font-bold text-white mt-2">
               {formatNumber(totals.google)}
             </p>
-            <p className="text-xs text-[#94A3B8] mt-2">
-              Post-click only (30-day window)
+            <p className="text-[10px] sm:text-xs text-[#94A3B8] mt-2">
+              Google Ads — 30d click
             </p>
           </div>
 
-          {/* HubSpot Confirmed */}
+          {/* HARD number — Verified ad leads. The agency-facing headline. */}
           <div
-            className={cn(
-              "rounded-xl sm:rounded-2xl p-4 sm:p-6 border",
-              hasHubSpot
-                ? "bg-white/[0.04] border-[#C8A96E]/30"
-                : "bg-white/[0.04] border-white/[0.06] opacity-60",
-            )}
+            className="rounded-xl sm:rounded-2xl p-4 sm:p-6 border-2"
+            style={{ borderColor: MINISTRY_BRAND.accentColor, background: `${MINISTRY_BRAND.accentColor}12` }}
           >
             <div className="flex items-center gap-2 mb-1">
               <span className="w-2 h-2 rounded-full" style={{ background: MINISTRY_BRAND.accentColor }} />
-              <span className="text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
-                HubSpot Confirmed
+              <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider" style={{ color: MINISTRY_BRAND.accentColor }}>
+                Verified Ad Leads
               </span>
             </div>
-            <p className="text-4xl font-bold text-white mt-2">
+            <p className="text-3xl sm:text-4xl font-bold text-white mt-2">
+              {formatNumber(reconciliation.totalAdVerified)}
+            </p>
+            <p className="text-[10px] sm:text-xs text-[#94A3B8] mt-2">
+              Cross-referenced to a live campaign via hsa_cam / utm_campaign, or FB Lead Ads form
+            </p>
+          </div>
+
+          {/* Soft — HubSpot total. Context, not a performance metric. */}
+          <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 opacity-80">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="w-2 h-2 rounded-full bg-[#94A3B8]" />
+              <span className="text-[10px] sm:text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
+                HubSpot Total
+              </span>
+            </div>
+            <p className="text-3xl sm:text-4xl font-bold text-[#94A3B8] mt-2">
               {formatNumber(reconciliation.totalHubSpotLeads)}
             </p>
-            <p className="text-xs text-[#94A3B8] mt-2">
-              Contacts created in range, first-touch attribution
+            <p className="text-[10px] sm:text-xs text-[#94A3B8] mt-2">
+              All contacts — includes organic, direct, referral ({formatNumber(reconciliation.totalHeuristicPaid)} heuristic paid)
             </p>
           </div>
         </div>
@@ -188,46 +200,64 @@ export default function CrmReconciliationPage() {
           <div className="p-4 sm:p-5 border-b border-white/[0.06]">
             <h2 className="text-lg font-semibold text-white">Channel Reconciliation</h2>
             <p className="text-xs text-[#94A3B8] mt-1">
-              Platform conversions vs HubSpot-confirmed leads grouped by first-touch channel
+              <span style={{ color: MINISTRY_BRAND.accentColor }}>Verified</span> = cross-referenced to a live campaign. <span className="text-[#94A3B8]/70">HubSpot Tagged</span> = first-touch channel HubSpot picked, may not join back to a specific campaign.
             </p>
           </div>
 
           <div className="hidden lg:block overflow-x-auto">
-            <table className="w-full text-sm min-w-[600px]">
+            <table className="w-full text-sm min-w-[700px]">
               <thead>
                 <tr className="border-b border-white/[0.06]">
                   <th className="text-left px-5 py-3 text-xs font-medium text-[#94A3B8] uppercase tracking-wider">Channel</th>
                   <th className="text-right px-4 py-3 text-xs font-medium text-[#94A3B8] uppercase tracking-wider">Platform Claimed</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-[#94A3B8] uppercase tracking-wider">HubSpot Confirmed</th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
-                    <Tooltip content="Confirmed − Claimed. Negative = platform over-reports vs CRM.">
-                      <span className="cursor-help border-b border-dashed border-[#94A3B8]/40">Gap</span>
+                  <th className="text-right px-4 py-3 text-xs font-bold uppercase tracking-wider" style={{ color: MINISTRY_BRAND.accentColor }}>
+                    <Tooltip content="Leads whose landing URL joins to a live Windsor campaign, OR which came from a Facebook Lead Ads form. This is the agency-defensible number.">
+                      <span className="cursor-help border-b border-dashed" style={{ borderColor: `${MINISTRY_BRAND.accentColor}80` }}>Verified</span>
                     </Tooltip>
                   </th>
-                  <th className="text-right px-4 py-3 text-xs font-medium text-[#94A3B8] uppercase tracking-wider">Confirmed Rate</th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
+                    <Tooltip content="All HubSpot contacts with this first-touch channel. Includes contacts we can't join back to a specific campaign.">
+                      <span className="cursor-help border-b border-dashed border-[#94A3B8]/40">HubSpot Tagged</span>
+                    </Tooltip>
+                  </th>
+                  <th className="text-right px-4 py-3 text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
+                    <Tooltip content="Verified − Platform Claimed. Positive = HubSpot verified more than the pixel counted. Negative = platform over-reports vs CRM.">
+                      <span className="cursor-help border-b border-dashed border-[#94A3B8]/40">Gap vs Claimed</span>
+                    </Tooltip>
+                  </th>
                 </tr>
               </thead>
               <tbody>
                 {reconciliation.byChannel
                   .filter((r) => r.platformClaimed > 0 || r.hubspotConfirmed > 0)
-                  .map((r) => (
-                    <tr key={r.channel} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
-                      <td className="px-5 py-3 text-white font-medium">{CHANNEL_LABEL[r.channel]}</td>
-                      <td className="px-4 py-3 text-right text-white tabular-nums">
-                        {r.platformClaimed > 0 ? formatNumber(r.platformClaimed) : <span className="text-[#94A3B8]/40">&mdash;</span>}
-                      </td>
-                      <td className="px-4 py-3 text-right text-white tabular-nums">{formatNumber(r.hubspotConfirmed)}</td>
-                      <td className={cn(
-                        "px-4 py-3 text-right tabular-nums",
-                        r.gap < 0 ? "text-amber-400" : r.gap > 0 ? "text-emerald-400" : "text-[#94A3B8]",
-                      )}>
-                        {r.gap > 0 ? "+" : ""}{formatNumber(r.gap)}
-                      </td>
-                      <td className="px-4 py-3 text-right text-white tabular-nums">
-                        {r.confirmedRate != null ? `${(r.confirmedRate * 100).toFixed(0)}%` : <span className="text-[#94A3B8]/40">&mdash;</span>}
-                      </td>
-                    </tr>
-                  ))}
+                  .map((r) => {
+                    const verifiedGap = r.adVerified - r.platformClaimed;
+                    return (
+                      <tr key={r.channel} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                        <td className="px-5 py-3 text-white font-medium">{CHANNEL_LABEL[r.channel]}</td>
+                        <td className="px-4 py-3 text-right text-white tabular-nums">
+                          {r.platformClaimed > 0 ? formatNumber(r.platformClaimed) : <span className="text-[#94A3B8]/40">&mdash;</span>}
+                        </td>
+                        <td
+                          className="px-4 py-3 text-right font-semibold tabular-nums"
+                          style={{ color: r.adVerified > 0 ? MINISTRY_BRAND.accentColor : "#64748B" }}
+                        >
+                          {r.adVerified > 0 ? formatNumber(r.adVerified) : <span className="text-[#94A3B8]/40">&mdash;</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right text-[#94A3B8] tabular-nums">{formatNumber(r.hubspotConfirmed)}</td>
+                        <td className={cn(
+                          "px-4 py-3 text-right tabular-nums",
+                          (r.channel === "meta" || r.channel === "google")
+                            ? verifiedGap < 0 ? "text-amber-400" : verifiedGap > 0 ? "text-emerald-400" : "text-[#94A3B8]"
+                            : "text-[#94A3B8]/40",
+                        )}>
+                          {(r.channel === "meta" || r.channel === "google")
+                            ? `${verifiedGap > 0 ? "+" : ""}${formatNumber(verifiedGap)}`
+                            : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
@@ -241,11 +271,8 @@ export default function CrmReconciliationPage() {
                   <span className="text-sm font-semibold text-white">{CHANNEL_LABEL[r.channel]}</span>
                   <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
                     <MetricCell label="Claimed" value={r.platformClaimed > 0 ? formatNumber(r.platformClaimed) : "—"} />
-                    <MetricCell label="CRM" value={formatNumber(r.hubspotConfirmed)} emphasis />
-                    <MetricCell
-                      label="Gap"
-                      value={`${r.gap > 0 ? "+" : ""}${formatNumber(r.gap)}`}
-                    />
+                    <MetricCell label="Verified" value={r.adVerified > 0 ? formatNumber(r.adVerified) : "—"} emphasis />
+                    <MetricCell label="HS Tagged" value={formatNumber(r.hubspotConfirmed)} />
                   </div>
                 </div>
               ))}

@@ -81,10 +81,55 @@ export interface ChannelReconciliation {
   channel: LeadChannel;
   platformClaimed: number;
   hubspotConfirmed: number;
+  /** Subset of hubspotConfirmed that cross-references to a live Windsor campaign.
+   *  This is the number an agency can actually defend as "driven by our ads". */
+  adVerified: number;
   /** confirmed − claimed. Negative = platform over-reports, positive = CRM has more leads than the pixel. */
   gap: number;
   /** hubspotConfirmed / platformClaimed. null when claimed is 0. */
   confirmedRate: number | null;
+}
+
+/**
+ * Three-tier verification status for a contact:
+ * - "verified"        — cross-references to a live Windsor Meta/Google campaign
+ *                       via `hsa_cam` → campaign_id, `utm_campaign` → campaign name,
+ *                       OR the conversion event is a Facebook Lead Ads form.
+ *                       This is the number we can defend as "driven by our ads".
+ * - "heuristic_paid"  — HubSpot tagged PAID_SOCIAL / PAID_SEARCH but we couldn't
+ *                       match a specific Windsor campaign. Likely paid, unprovable.
+ * - "other"           — organic / direct / referral / email / offline.
+ */
+export type VerificationStatus = "verified" | "heuristic_paid" | "other";
+
+export function classifyVerification(
+  contact: HubSpotContact,
+  windsorRows: WindsorRow[],
+): VerificationStatus {
+  // Facebook Lead Ads events are end-to-end Meta-owned — the contact came
+  // from a lead form inside Meta's ecosystem, so it's verifiable as ad-driven
+  // even when the landing URL doesn't carry UTMs.
+  const eventName = (contact.recentConversionEventName ?? contact.firstConversionEventName ?? "").toLowerCase();
+  if (eventName.includes("facebook lead") || eventName.includes("lead ads")) {
+    return "verified";
+  }
+
+  const { campaignId, campaignName } = extractMetaCampaignFromFirstUrl(contact.firstUrl);
+  if (campaignId) {
+    const idMatch = windsorRows.some(
+      (r) => (r.campaign_id as string | undefined) === campaignId,
+    );
+    if (idMatch) return "verified";
+  }
+  const joinName = campaignName ?? contact.analyticsSourceData2 ?? null;
+  if (joinName) {
+    const nameMatch = windsorRows.some((r) => r.campaign === joinName);
+    if (nameMatch) return "verified";
+  }
+
+  const channel = mapAnalyticsSourceToChannel(contact.analyticsSource);
+  if (channel === "meta" || channel === "google") return "heuristic_paid";
+  return "other";
 }
 
 export interface LeadTypeBreakdown {
@@ -97,6 +142,13 @@ export interface ReconciliationResult {
   totalHubSpotLeads: number;
   /** Total conversions claimed by Meta + Google pixels in the same window. */
   totalPlatformClaimed: number;
+  /** Contacts verified as ad-driven (Facebook Lead Ads form OR first_url joins
+   *  to a live Windsor campaign via hsa_cam / utm_campaign). The headline
+   *  agency-facing number. */
+  totalAdVerified: number;
+  /** Contacts HubSpot tagged paid (PAID_SOCIAL / PAID_SEARCH) but with no
+   *  joinable campaign on the landing URL. Likely paid, unprovable. */
+  totalHeuristicPaid: number;
   byChannel: ChannelReconciliation[];
   byLeadType: LeadTypeBreakdown[];
   /** Contacts with analyticsSource = null/OFFLINE/OTHER — can't be attributed. */
@@ -113,14 +165,19 @@ export function reconcileLeads(
 ): ReconciliationResult {
   const platformTotals = sumConversions(windsorRows);
 
-  // Bucket HubSpot contacts by first-touch channel.
+  // Bucket HubSpot contacts by first-touch channel and verification tier.
   const channelCounts: Record<LeadChannel, number> = {
+    meta: 0, google: 0, direct: 0, organic: 0, email: 0, referral: 0, other: 0,
+  };
+  const channelVerified: Record<LeadChannel, number> = {
     meta: 0, google: 0, direct: 0, organic: 0, email: 0, referral: 0, other: 0,
   };
   const typeCounts: Record<LeadType, number> = {
     EnquiryForm: 0, DayPass: 0, FacebookLead: 0, Unknown: 0,
   };
   const unattributed: HubSpotContact[] = [];
+  let totalAdVerified = 0;
+  let totalHeuristicPaid = 0;
 
   for (const c of contacts) {
     const channel = mapAnalyticsSourceToChannel(c.analyticsSource);
@@ -130,6 +187,14 @@ export function reconcileLeads(
     }
     const leadType = categoriseLeadType(c.recentConversionEventName ?? c.firstConversionEventName);
     typeCounts[leadType] += 1;
+
+    const status = classifyVerification(c, windsorRows);
+    if (status === "verified") {
+      totalAdVerified += 1;
+      channelVerified[channel] += 1;
+    } else if (status === "heuristic_paid") {
+      totalHeuristicPaid += 1;
+    }
   }
 
   // Only the paid channels have a corresponding platform-claimed number.
@@ -142,10 +207,12 @@ export function reconcileLeads(
   const byChannel: ChannelReconciliation[] = channels.map((channel) => {
     const platformClaimed = platformByChannel[channel] ?? 0;
     const hubspotConfirmed = channelCounts[channel];
+    const adVerified = channelVerified[channel];
     return {
       channel,
       platformClaimed,
       hubspotConfirmed,
+      adVerified,
       gap: hubspotConfirmed - platformClaimed,
       confirmedRate: platformClaimed > 0 ? hubspotConfirmed / platformClaimed : null,
     };
@@ -157,6 +224,8 @@ export function reconcileLeads(
   return {
     totalHubSpotLeads: contacts.length,
     totalPlatformClaimed: platformTotals.total,
+    totalAdVerified,
+    totalHeuristicPaid,
     byChannel,
     byLeadType,
     unattributed,
