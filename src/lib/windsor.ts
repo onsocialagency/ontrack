@@ -852,6 +852,144 @@ export async function getWindsorSearchTermData(
   return results;
 }
 
+/* ── HubSpot (CRM) via Windsor ────────────────────────────────────────
+ * Windsor proxies HubSpot under /hubspot using the same API key as Meta +
+ * Google. There is no separate HubSpot private-app token. All contact
+ * properties are exposed with a `contact_` prefix.
+ *
+ * Used by Ministry's CRM reconciliation (/ministry/crm) to compare
+ * platform-reported conversions against HubSpot-confirmed leads.
+ */
+
+export type HubSpotAnalyticsSource =
+  | "PAID_SOCIAL"
+  | "PAID_SEARCH"
+  | "ORGANIC_SEARCH"
+  | "DIRECT_TRAFFIC"
+  | "REFERRALS"
+  | "SOCIAL_MEDIA"
+  | "EMAIL_MARKETING"
+  | "OTHER_CAMPAIGNS"
+  | "OFFLINE"
+  | string;
+
+export interface HubSpotContact {
+  hsObjectId: string;
+  email: string;
+  firstname: string;
+  lastname: string;
+  company: string | null;
+  phone: string | null;
+  lifecyclestage: string | null;
+  leadStatus: string | null;
+  createdate: string;
+  firstConversionDate: string | null;
+  recentConversionDate: string | null;
+  firstConversionEventName: string | null;
+  recentConversionEventName: string | null;
+  analyticsSource: HubSpotAnalyticsSource | null;
+  latestSource: HubSpotAnalyticsSource | null;
+  analyticsSourceData1: string | null;
+  analyticsSourceData2: string | null;
+  firstUrl: string | null;
+  firstReferrer: string | null;
+  numConversionEvents: number;
+  numAssociatedDeals: number;
+  ownerId: string | null;
+  message: string | null;
+}
+
+const HUBSPOT_CONTACT_FIELDS = [
+  "contact_hs_object_id",
+  "contact_email",
+  "contact_firstname",
+  "contact_lastname",
+  "contact_company",
+  "contact_phone",
+  "contact_lifecyclestage",
+  "contact_hs_lead_status",
+  "contact_createdate",
+  "contact_first_conversion_date",
+  "contact_recent_conversion_date",
+  "contact_first_conversion_event_name",
+  "contact_recent_conversion_event_name",
+  "contact_hs_analytics_source",
+  "contact_hs_latest_source",
+  "contact_hs_analytics_source_data_1",
+  "contact_hs_analytics_source_data_2",
+  "contact_hs_analytics_first_url",
+  "contact_hs_analytics_first_referrer",
+  "contact_num_conversion_events",
+  "contact_num_associated_deals",
+  "contact_hubspot_owner_id",
+  "contact_message",
+];
+
+function normalizeHubSpotContact(raw: Record<string, unknown>): HubSpotContact {
+  const str = (v: unknown): string | null => {
+    if (v == null || v === "") return null;
+    return String(v);
+  };
+  return {
+    hsObjectId: String(raw.contact_hs_object_id || ""),
+    email: String(raw.contact_email || ""),
+    firstname: String(raw.contact_firstname || ""),
+    lastname: String(raw.contact_lastname || ""),
+    company: str(raw.contact_company),
+    phone: str(raw.contact_phone),
+    lifecyclestage: str(raw.contact_lifecyclestage),
+    leadStatus: str(raw.contact_hs_lead_status),
+    createdate: String(raw.contact_createdate || ""),
+    firstConversionDate: str(raw.contact_first_conversion_date),
+    recentConversionDate: str(raw.contact_recent_conversion_date),
+    firstConversionEventName: str(raw.contact_first_conversion_event_name),
+    recentConversionEventName: str(raw.contact_recent_conversion_event_name),
+    analyticsSource: str(raw.contact_hs_analytics_source),
+    latestSource: str(raw.contact_hs_latest_source),
+    analyticsSourceData1: str(raw.contact_hs_analytics_source_data_1),
+    analyticsSourceData2: str(raw.contact_hs_analytics_source_data_2),
+    firstUrl: str(raw.contact_hs_analytics_first_url),
+    firstReferrer: str(raw.contact_hs_analytics_first_referrer),
+    numConversionEvents: Number(raw.contact_num_conversion_events) || 0,
+    numAssociatedDeals: Number(raw.contact_num_associated_deals) || 0,
+    ownerId: str(raw.contact_hubspot_owner_id),
+    message: str(raw.contact_message),
+  };
+}
+
+/**
+ * Fetch HubSpot contacts via Windsor. Date range filters against contact
+ * createdate. Cached for 1h alongside the other Windsor fetchers.
+ */
+export async function getWindsorHubSpotContacts(
+  apiKey: string,
+  days = 30,
+  dateRange?: { dateFrom: string; dateTo: string },
+): Promise<HubSpotContact[]> {
+  const cacheKey = buildCacheKey("hubspot_contacts", apiKey, days, dateRange?.dateFrom, dateRange?.dateTo);
+  const cached = getCached<HubSpotContact[]>(cacheKey);
+  if (cached) return cached;
+
+  const results: HubSpotContact[] = [];
+  try {
+    const raw = await fetchRaw({
+      apiKey,
+      fields: HUBSPOT_CONTACT_FIELDS,
+      ...(dateRange ? { dateFrom: dateRange.dateFrom, dateTo: dateRange.dateTo } : { datePreset: `last_${days}d` }),
+      // TS union doesn't list hubspot; cast via unknown to keep fetchRaw typed.
+      source: "hubspot" as unknown as WindsorParams["source"],
+    });
+    for (const row of raw) {
+      results.push(normalizeHubSpotContact(row));
+    }
+  } catch (err) {
+    console.error("[Windsor] HubSpot fetch failed:", err);
+  }
+
+  setCache(cacheKey, results);
+  return results;
+}
+
 /** TikTok creative data — placeholder until Windsor TikTok connector is confirmed */
 const TIKTOK_CREATIVE_FIELDS = [
   "date", "campaign_name", "ad_group_name", "ad_name", "ad_id",

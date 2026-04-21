@@ -3,6 +3,7 @@ import {
   getWindsorCampaignData,
   getWindsorCreativeData,
   getWindsorGA4Data,
+  getWindsorHubSpotContacts,
   getWindsorRSAAssetData,
   getWindsorKeywordQSData,
   getWindsorSearchTermData,
@@ -67,6 +68,21 @@ export async function GET(request: NextRequest) {
 
   try {
     const dateOpts = dateFrom && dateTo ? { dateFrom, dateTo } : undefined;
+
+    // HubSpot contacts — tenant scoping handled at the Windsor API-key level
+    // (the key only sees the connected HubSpot portal). No row-level client
+    // filter to apply; contacts don't carry account_id.
+    if (type === "hubspot") {
+      const contacts = await getWindsorHubSpotContacts(apiKey, days, dateOpts);
+      return NextResponse.json({
+        data: contacts,
+        totalRows: contacts.length,
+        filteredRows: contacts.length,
+        clientName: client?.name,
+        source: "windsor",
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     // GA4 data doesn't need client filtering (it's per-property)
     if (type === "ga4") {
