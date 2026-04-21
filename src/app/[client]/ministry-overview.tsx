@@ -224,6 +224,16 @@ export default function MinistryOverview() {
     dateTo: prevDateTo,
   });
 
+  // Previous period HubSpot data — needed to emit previous-period verified-lead
+  // series into the drilldown modal.
+  const { data: prevHubspotData } = useWindsor<HubSpotContact[]>({
+    clientSlug,
+    type: "hubspot",
+    days,
+    dateFrom: prevDateFrom,
+    dateTo: prevDateTo,
+  });
+
   // HubSpot confirmed leads for the same range. The headline metric is the
   // ad-verified subset (contacts we can cross-reference to a live campaign),
   // not the raw CRM total.
@@ -242,7 +252,12 @@ export default function MinistryOverview() {
     () => reconcileLeads(hubspotData ?? [], windsorData ?? []),
     [hubspotData, windsorData],
   );
+  const prevHubspotReconciliation = useMemo(
+    () => reconcileLeads(prevHubspotData ?? [], prevWindsorData ?? []),
+    [prevHubspotData, prevWindsorData],
+  );
   const verifiedAdLeads = hubspotReconciliation.totalAdVerified;
+  const prevVerifiedAdLeads = prevHubspotReconciliation.totalAdVerified;
   const hubspotTotal = hubspotReconciliation.totalHubSpotLeads;
 
   // Aggregate current period
@@ -262,32 +277,78 @@ export default function MinistryOverview() {
 
   // Deltas
   const deltas = useMemo(() => {
-    if (!prev) return { spend: 0, conversions: 0, cpl: 0, meta: 0, google: 0 };
+    if (!prev) return { spend: 0, conversions: 0, cpl: 0, meta: 0, google: 0, verifiedLeads: 0, verifiedCpl: 0 };
     const prevCpl = prev.totalConversions > 0 ? prev.totalSpend / prev.totalConversions : 0;
+    const currVerifiedCpl = verifiedAdLeads > 0 ? current.totalSpend / verifiedAdLeads : 0;
+    const prevVerifiedCpl = prevVerifiedAdLeads > 0 ? prev.totalSpend / prevVerifiedAdLeads : 0;
     return {
       spend: pctChange(current.totalSpend, prev.totalSpend),
       conversions: pctChange(current.totalConversions, prev.totalConversions),
       cpl: pctChange(current.blendedCpl, prevCpl),
       meta: pctChange(current.metaSpend, prev.metaSpend),
       google: pctChange(current.googleSpend, prev.googleSpend),
+      verifiedLeads: pctChange(verifiedAdLeads, prevVerifiedAdLeads),
+      verifiedCpl: pctChange(currVerifiedCpl, prevVerifiedCpl),
     };
-  }, [current, prev]);
+  }, [current, prev, verifiedAdLeads, prevVerifiedAdLeads]);
 
-  // Chart data (last 30 days)
+  // HubSpot-verified leads bucketed by createdate — lets the Verified Ad Leads
+  // and Verified CPL cards show a real daily trend instead of a spend proxy.
+  const verifiedByDate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of hubspotReconciliation.byDate) m.set(b.date, b.verified);
+    return m;
+  }, [hubspotReconciliation.byDate]);
+  const prevVerifiedByDate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const b of prevHubspotReconciliation.byDate) m.set(b.date, b.verified);
+    return m;
+  }, [prevHubspotReconciliation.byDate]);
+
+  // Chart data (current period) — each day carries spend, platform-claimed
+  // conversions, verified-lead count, and computed CPL so any card can share
+  // the series safely.
   const chartData = useMemo(() => {
-    return current.daily.map((d) => ({
-      ...d,
-      date: fmtDate(d.date),
-    }));
-  }, [current.daily, fmtDate]);
+    return current.daily.map((d) => {
+      const verifiedLeads = verifiedByDate.get(d.date) ?? 0;
+      const verifiedCpl = verifiedLeads > 0 ? d.spend / verifiedLeads : 0;
+      return {
+        ...d,
+        date: fmtDate(d.date),
+        verifiedLeads,
+        verifiedCpl,
+      };
+    });
+  }, [current.daily, fmtDate, verifiedByDate]);
+
+  // Previous chart data, aligned 1:1 with current by index — used to draw the
+  // "previous period" line inside the drilldown modal.
+  const prevChartData = useMemo(() => {
+    if (!prev || !("daily" in prev)) return null;
+    const daily = prev.daily as typeof current.daily;
+    return daily.map((d) => {
+      const verifiedLeads = prevVerifiedByDate.get(d.date) ?? 0;
+      const verifiedCpl = verifiedLeads > 0 ? d.spend / verifiedLeads : 0;
+      return {
+        ...d,
+        date: fmtDate(d.date),
+        verifiedLeads,
+        verifiedCpl,
+      };
+    });
+  }, [prev, current.daily, fmtDate, prevVerifiedByDate]);
 
   // Sparklines — per-platform series come from the real daily split computed
   // in aggregateWindsor (previously these were spend × 0.6 / × 0.4 fakes).
+  // verifiedLeads + verifiedCpl are HubSpot-driven and replace the old
+  // spend-proxy sparkline under the Verified cards.
   const sparklines = useMemo(() => ({
     spend: chartData.map((d) => ({ v: d.spend, label: d.date })),
     conversions: chartData.map((d) => ({ v: d.conversions, label: d.date })),
     metaSpend: chartData.map((d) => ({ v: d.metaSpend, label: d.date })),
     googleSpend: chartData.map((d) => ({ v: d.googleSpend, label: d.date })),
+    verifiedLeads: chartData.map((d) => ({ v: d.verifiedLeads, label: d.date })),
+    verifiedCpl: chartData.map((d) => ({ v: d.verifiedCpl, label: d.date })),
   }), [chartData]);
 
   // Budget pacing
@@ -345,7 +406,7 @@ export default function MinistryOverview() {
     title: string,
     icon: React.ReactNode,
     currentValue: string,
-    dailyKey: "spend" | "conversions",
+    dailyKey: "spend" | "conversions" | "verifiedLeads" | "verifiedCpl" | "metaSpend" | "googleSpend",
     breakdown: { name: string; value: number; formatted: string; color: string }[],
     accentColor: string,
     fmtFn?: (v: number) => string,
@@ -354,7 +415,14 @@ export default function MinistryOverview() {
     icon,
     currentValue,
     currentLabel,
-    dailyData: chartData.map((d) => ({ date: d.date, current: d[dailyKey] })),
+    // Align previous-period daily values 1:1 with current by index so the modal
+    // can draw a comparison line. Shorter prev arrays get undefined for the
+    // unmatched tail days, which the chart skips.
+    dailyData: chartData.map((d, i) => ({
+      date: d.date,
+      current: d[dailyKey],
+      previous: prevChartData ? prevChartData[i]?.[dailyKey] : undefined,
+    })),
     breakdown,
     accentColor,
     formatValue: fmtFn,
@@ -371,7 +439,7 @@ export default function MinistryOverview() {
         <DataBlur isBlurred={dataSource !== "windsor" && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
         {/* ── SECTION 1: KPI Strip ── */}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Total Spend"
             value={formatCurrency(current.totalSpend, "GBP")}
             delta={deltas.spend}
@@ -386,7 +454,7 @@ export default function MinistryOverview() {
               (v) => formatCurrency(v, "GBP"),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Platform Claimed"
             value={formatNumber(current.totalConversions)}
             delta={deltas.conversions}
@@ -406,31 +474,44 @@ export default function MinistryOverview() {
               (v) => formatNumber(v),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Verified Ad Leads"
             value={formatNumber(verifiedAdLeads)}
-            delta={0}
+            delta={deltas.verifiedLeads}
             icon={<Users size={12} />}
             tooltip={`Leads cross-referenced to a live campaign (via hsa_cam / utm_campaign / FB Lead Ads form). HubSpot total this period: ${formatNumber(hubspotTotal)}.`}
+            sparkline={sparklines.verifiedLeads}
             accentColor={ACCENT}
+            onClick={() => setKpiDetail(buildDetail(
+              "Verified Ad Leads", <Users size={18} />,
+              formatNumber(verifiedAdLeads),
+              "verifiedLeads",
+              [
+                { name: "Verified (campaign match)", value: verifiedAdLeads, formatted: formatNumber(verifiedAdLeads), color: ACCENT },
+                { name: "Heuristic paid (no join)", value: hubspotReconciliation.totalHeuristicPaid, formatted: formatNumber(hubspotReconciliation.totalHeuristicPaid), color: "#F59E0B" },
+                { name: "Other (organic / direct / email)", value: Math.max(hubspotTotal - verifiedAdLeads - hubspotReconciliation.totalHeuristicPaid, 0), formatted: formatNumber(Math.max(hubspotTotal - verifiedAdLeads - hubspotReconciliation.totalHeuristicPaid, 0)), color: "#64748B" },
+              ],
+              ACCENT,
+              (v) => formatNumber(v),
+            ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Verified CPL"
             value={verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, "GBP") : "—"}
-            delta={deltas.cpl}
+            delta={deltas.verifiedCpl}
             invertDelta
             icon={<TrendingDown size={12} />}
             tooltip="Total ad spend ÷ verified ad leads. The true cost per lead we can defend."
-            sparkline={sparklines.spend}
+            sparkline={sparklines.verifiedCpl}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
               "Verified CPL", <TrendingDown size={18} />,
               verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, "GBP") : formatCurrency(current.blendedCpl, "GBP"),
-              "spend", platformBreakdown, ACCENT,
+              "verifiedCpl", platformBreakdown, ACCENT,
               (v) => formatCurrency(v, "GBP"),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Meta Spend"
             value={formatCurrency(current.metaSpend, "GBP")}
             delta={deltas.meta}
@@ -445,7 +526,7 @@ export default function MinistryOverview() {
               (v) => formatCurrency(v, "GBP"),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Google Spend"
             value={formatCurrency(current.googleSpend, "GBP")}
             delta={deltas.google}

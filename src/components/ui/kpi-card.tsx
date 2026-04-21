@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { ArrowUpRight, ArrowDownRight, Info, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -28,6 +29,8 @@ interface KpiCardProps {
   size?: "default" | "compact";
   /** When true, a negative delta is shown as green (good) and positive as red (bad). Use for cost metrics like CPA, CPL. */
   invertDelta?: boolean;
+  /** When true, the numeric value + delta + sparkline are blurred to indicate pending data. */
+  loading?: boolean;
 }
 
 /* ── Sparkline Tooltip ── */
@@ -66,12 +69,29 @@ export function KpiCard({
   subLabel,
   size = "default",
   invertDelta = false,
+  loading = false,
 }: KpiCardProps) {
   // For cost metrics (CPA, CPL), a decrease is good (green) and increase is bad (red)
   const isPositive = invertDelta ? delta <= 0 : delta >= 0;
   const hasDelta = delta !== 0;
   const [showTooltip, setShowTooltip] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const tooltipAnchorRef = useRef<HTMLSpanElement | null>(null);
   const isCompact = size === "compact";
+
+  // Compute portal-rendered tooltip position against the icon's viewport rect
+  // so the tooltip escapes any `overflow-hidden/auto` ancestor clipping.
+  useEffect(() => {
+    if (!showTooltip || !tooltipAnchorRef.current) {
+      setTooltipPos(null);
+      return;
+    }
+    const rect = tooltipAnchorRef.current.getBoundingClientRect();
+    setTooltipPos({
+      top: rect.top,
+      left: rect.left + rect.width / 2,
+    });
+  }, [showTooltip]);
 
   return (
     <div
@@ -103,15 +123,20 @@ export function KpiCard({
           </span>
           {tooltip && (
             <span
-              className="relative flex-shrink-0 cursor-help hidden sm:inline-flex"
+              ref={tooltipAnchorRef}
+              className="flex-shrink-0 cursor-help hidden sm:inline-flex"
               onMouseEnter={() => setShowTooltip(true)}
               onMouseLeave={() => setShowTooltip(false)}
             >
               <Info size={12} className="text-[#A8BBCC]/30 hover:text-[#A8BBCC]/60 transition-colors" />
-              {showTooltip && (
-                <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 rounded-xl text-[11px] leading-relaxed font-medium bg-[#1A1A2E] text-[#E2E8F0] border border-white/[0.1] shadow-2xl max-w-[220px] whitespace-normal pointer-events-none">
+              {showTooltip && tooltipPos && typeof document !== "undefined" && createPortal(
+                <span
+                  className="fixed z-[100] px-3 py-2 rounded-xl text-[11px] leading-relaxed font-medium bg-[#1A1A2E] text-[#E2E8F0] border border-white/[0.1] shadow-2xl max-w-[220px] whitespace-normal pointer-events-none -translate-x-1/2 -translate-y-full"
+                  style={{ top: tooltipPos.top - 8, left: tooltipPos.left }}
+                >
                   {tooltip}
-                </span>
+                </span>,
+                document.body,
               )}
             </span>
           )}
@@ -121,10 +146,11 @@ export function KpiCard({
         {hasDelta && (
           <span
             className={cn(
-              "inline-flex items-center gap-0.5 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md sm:rounded-lg text-[10px] sm:text-[11px] font-semibold flex-shrink-0",
+              "inline-flex items-center gap-0.5 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md sm:rounded-lg text-[10px] sm:text-[11px] font-semibold flex-shrink-0 transition-[filter] duration-300",
               isPositive
                 ? "bg-[#22C55E]/10 text-[#22C55E]"
                 : "bg-[#EF4444]/10 text-[#EF4444]",
+              loading && "blur-sm opacity-70 animate-pulse",
             )}
           >
             {/* Arrow direction reflects actual value movement (up/down), color reflects sentiment (good/bad) */}
@@ -140,8 +166,9 @@ export function KpiCard({
           <span className="text-xs sm:text-sm font-medium text-[#A8BBCC]">{prefix}</span>
         )}
         <span className={cn(
-          "font-bold tracking-tight text-white tabular-nums",
+          "font-bold tracking-tight text-white tabular-nums transition-[filter] duration-300",
           isCompact ? "text-xl sm:text-2xl" : "text-xl sm:text-[28px] leading-none",
+          loading && "blur-md opacity-70 animate-pulse select-none",
         )}>
           {value}
         </span>
@@ -149,14 +176,21 @@ export function KpiCard({
 
       {/* Previous period comparison text */}
       {(previousValue || subLabel) && (
-        <p className="text-[10px] sm:text-[11px] text-[#64748B] mt-0.5 mb-1 sm:mb-2">
+        <p className={cn(
+          "text-[10px] sm:text-[11px] text-[#64748B] mt-0.5 mb-1 sm:mb-2 transition-[filter] duration-300",
+          loading && "blur-sm opacity-70",
+        )}>
           {subLabel || `vs ${previousValue} prev period`}
         </p>
       )}
 
       {/* Sparkline */}
       {sparkline && sparkline.length > 1 ? (
-        <div className={cn("mt-auto", isCompact ? "h-[40px]" : "h-[52px]")}>
+        <div className={cn(
+          "mt-auto transition-[filter] duration-300",
+          isCompact ? "h-[40px]" : "h-[52px]",
+          loading && "blur-sm opacity-60",
+        )}>
           <ResponsiveContainer width="100%" height={isCompact ? 40 : 52}>
             <AreaChart data={sparkline} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
               <defs>

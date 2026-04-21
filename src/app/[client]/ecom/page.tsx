@@ -330,7 +330,7 @@ export default function EcomPage() {
         <DataBlur isBlurred={dataSource !== "windsor" && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
         {/* ── KPI Grid with sparklines ── */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Revenue"
             value={formatCurrency(ecom.revenue, client.currency)}
             delta={0}
@@ -345,7 +345,7 @@ export default function EcomPage() {
               (v) => formatCurrency(v, client.currency),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Platform ROAS"
             value={formatROAS(ecom.roas)}
             delta={0}
@@ -365,7 +365,7 @@ export default function EcomPage() {
               (v) => `${v.toFixed(2)}x`,
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Blended MER"
             value={formatROAS(ecom.mer)}
             delta={0}
@@ -385,7 +385,7 @@ export default function EcomPage() {
               (v) => `${v.toFixed(2)}x`,
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="AOV"
             value={formatCurrency(ecom.aov, client.currency)}
             delta={0}
@@ -402,7 +402,7 @@ export default function EcomPage() {
               (v) => formatCurrency(v, client.currency),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="CPA"
             value={formatCurrency(ecom.cpa, client.currency)}
             delta={0}
@@ -422,7 +422,7 @@ export default function EcomPage() {
               (v) => formatCurrency(v, client.currency),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Conversions"
             value={formatNumber(ecom.conversions)}
             delta={0}

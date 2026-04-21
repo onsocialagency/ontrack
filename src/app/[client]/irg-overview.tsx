@@ -424,7 +424,7 @@ export default function IrgOverview() {
 
         {/* ── KPI Grid ── */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          <KpiCard
+          <KpiCard loading={loading}
             title="Season Budget"
             value={formatCurrency(activeBudget, "EUR")}
             delta={0}
@@ -439,7 +439,7 @@ export default function IrgOverview() {
               (v) => formatCurrency(v, "EUR"),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={loading}
             title="Total Spend"
             value={formatCurrency(activeSpend, "EUR")}
             delta={deltaSpend}
@@ -454,7 +454,7 @@ export default function IrgOverview() {
               (v) => formatCurrency(v, "EUR"),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={loading}
             title={totalConversions > 0 ? "Blended CPA" : "CPA"}
             value={totalConversions > 0 ? formatCurrency(activeTab === "all" ? blendedCpa : (activeMetrics?.cpa || 0), "EUR") : "—"}
             delta={deltaCpa}
@@ -471,7 +471,7 @@ export default function IrgOverview() {
               (v) => formatCurrency(v, "EUR"),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={loading}
             title="Impressions"
             value={formatNumber(activeTab === "all" ? totalImpressions : (activeMetrics?.impressions || 0))}
             delta={deltaImpressions}
@@ -486,7 +486,7 @@ export default function IrgOverview() {
               (v) => formatNumber(v),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={loading}
             title="Clicks"
             value={formatNumber(activeTab === "all" ? totalClicks : (activeMetrics?.clicks || 0))}
             delta={deltaClicks}
@@ -501,7 +501,7 @@ export default function IrgOverview() {
               (v) => formatNumber(v),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={loading}
             title="Blended CTR"
             value={`${(activeTab === "all" ? blendedCtr : (activeMetrics?.ctr || 0)).toFixed(2)}%`}
             delta={deltaCtr}

@@ -315,7 +315,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
         <DataBlur isBlurred={!isLive && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
         {/* ── KPI Grid ── */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            <KpiCard
+            <KpiCard loading={windsorLoading}
               title="Ad Spend"
               value={formatCurrency(kpis.spend, client.currency)}
               delta={deltas.spend}
@@ -332,7 +332,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
               ))}
             />
             {isLeadGen ? (
-              <KpiCard
+              <KpiCard loading={windsorLoading}
                 title="Cost Per Lead"
                 value={
                   kpis.cpl !== undefined
@@ -354,7 +354,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
                 ))}
               />
             ) : (
-              <KpiCard
+              <KpiCard loading={windsorLoading}
                 title="Return on Ad Spend"
                 value={formatROAS(kpis.roas)}
                 delta={deltas.roas}
@@ -376,7 +376,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
                 ))}
               />
             )}
-            <KpiCard
+            <KpiCard loading={windsorLoading}
               title={terms.costLabelLong}
               value={formatCurrency(kpis.cpa, client.currency)}
               delta={deltas.cpa}
@@ -398,7 +398,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
                 (v) => formatCurrency(v, client.currency),
               ))}
             />
-            <KpiCard
+            <KpiCard loading={windsorLoading}
               title="Conversion Value"
               value={formatCurrency(kpis.revenue, client.currency)}
               delta={deltas.revenue}
@@ -419,7 +419,7 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
                 (v) => formatCurrency(v, client.currency),
               ))}
             />
-            <KpiCard
+            <KpiCard loading={windsorLoading}
               title="Conversions"
               value={formatNumber(kpis.conversions)}
               delta={deltas.conversions}

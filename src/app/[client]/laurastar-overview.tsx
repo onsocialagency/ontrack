@@ -287,7 +287,7 @@ export default function LaurastarOverview() {
 
         {/* ── KPI Grid (matches default overview) ── */}
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Ad Spend"
             value={formatCurrency(kpis.spend, currency)}
             delta={deltas.spend}
@@ -301,7 +301,7 @@ export default function LaurastarOverview() {
               "spend", spendBreakdown, "#FF6A41", (v) => formatCurrency(v, currency),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Return on Ad Spend"
             value={formatROAS(kpis.roas)}
             delta={deltas.roas}
@@ -318,7 +318,7 @@ export default function LaurastarOverview() {
               ], "#22C55E", (v) => `${v.toFixed(2)}x`,
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Cost Per Acquisition"
             value={formatCurrency(kpis.cpa, currency)}
             delta={deltas.cpa}
@@ -336,7 +336,7 @@ export default function LaurastarOverview() {
               ], "#F59E0B", (v) => formatCurrency(v, currency),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Conversion Value"
             value={formatCurrency(kpis.revenue, currency)}
             delta={deltas.revenue}
@@ -353,7 +353,7 @@ export default function LaurastarOverview() {
               ], "#06B6D4", (v) => formatCurrency(v, currency),
             ))}
           />
-          <KpiCard
+          <KpiCard loading={windsorLoading}
             title="Conversions"
             value={formatNumber(kpis.conversions)}
             delta={deltas.conversions}

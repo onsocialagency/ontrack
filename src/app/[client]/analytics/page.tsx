@@ -303,7 +303,7 @@ export default function AnalyticsPage() {
           <>
             {/* ── All 12 KPI cards in a responsive grid ── */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Conversion Rate"
                 value={formatPct(kpis.conversionRate)}
                 delta={0}
@@ -313,7 +313,7 @@ export default function AnalyticsPage() {
                 accentColor="#22C55E"
                 onClick={() => setKpiDetail(buildDetail("Conversion Rate", <TrendingUp size={18} />, formatPct(kpis.conversionRate), "conversionRate", "#22C55E", (v) => formatPct(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Users"
                 value={formatNumber(kpis.users)}
                 delta={0}
@@ -323,7 +323,7 @@ export default function AnalyticsPage() {
                 accentColor="#3B82F6"
                 onClick={() => setKpiDetail(buildDetail("Users", <Users size={18} />, formatNumber(kpis.users), "users", "#3B82F6", (v) => formatNumber(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Sessions"
                 value={formatNumber(kpis.sessions)}
                 delta={0}
@@ -333,7 +333,7 @@ export default function AnalyticsPage() {
                 accentColor="#FF6A41"
                 onClick={() => setKpiDetail(buildDetail("Sessions", <MousePointerClick size={18} />, formatNumber(kpis.sessions), "sessions", "#FF6A41", (v) => formatNumber(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Pages per Session"
                 value={kpis.pagesPerSession.toFixed(2)}
                 delta={0}
@@ -343,7 +343,7 @@ export default function AnalyticsPage() {
                 accentColor="#8B5CF6"
                 onClick={() => setKpiDetail(buildDetail("Pages per Session", <Layers size={18} />, kpis.pagesPerSession.toFixed(2), "pagesPerSession", "#8B5CF6", (v) => v.toFixed(2)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Session Duration"
                 value={formatDuration(kpis.avgSessionDuration)}
                 delta={0}
@@ -353,7 +353,7 @@ export default function AnalyticsPage() {
                 accentColor="#F59E0B"
                 onClick={() => setKpiDetail(buildDetail("Session Duration", <Clock size={18} />, formatDuration(kpis.avgSessionDuration), "avgSessionDuration", "#F59E0B", (v) => formatDuration(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Bounce Rate"
                 value={formatPct(kpis.bounceRate)}
                 delta={0}
@@ -364,7 +364,7 @@ export default function AnalyticsPage() {
                 invertDelta
                 onClick={() => setKpiDetail(buildDetail("Bounce Rate", <ArrowUpDown size={18} />, formatPct(kpis.bounceRate), "bounceRate", "#06B6D4", (v) => formatPct(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="New Users"
                 value={formatNumber(kpis.newUsers)}
                 delta={0}
@@ -374,7 +374,7 @@ export default function AnalyticsPage() {
                 accentColor="#EC4899"
                 onClick={() => setKpiDetail(buildDetail("New Users", <UserPlus size={18} />, formatNumber(kpis.newUsers), "newUsers", "#EC4899", (v) => formatNumber(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="New Users %"
                 value={formatPct(kpis.newUsersPct)}
                 delta={0}
@@ -384,7 +384,7 @@ export default function AnalyticsPage() {
                 accentColor="#22C55E"
                 onClick={() => setKpiDetail(buildDetail("New Users %", <Percent size={18} />, formatPct(kpis.newUsersPct), "newUsersPct", "#22C55E", (v) => formatPct(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Sessions with Add to Carts"
                 value={formatNumber(kpis.addToCarts)}
                 delta={0}
@@ -394,7 +394,7 @@ export default function AnalyticsPage() {
                 accentColor="#FF6A41"
                 onClick={() => setKpiDetail(buildDetail("Add to Carts", <ShoppingCart size={18} />, formatNumber(kpis.addToCarts), "addToCarts", "#FF6A41", (v) => formatNumber(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Add to Cart %"
                 value={formatPct(kpis.addToCartRate)}
                 delta={0}
@@ -404,7 +404,7 @@ export default function AnalyticsPage() {
                 accentColor="#3B82F6"
                 onClick={() => setKpiDetail(buildDetail("Add to Cart %", <ShoppingCart size={18} />, formatPct(kpis.addToCartRate), "addToCartRate", "#3B82F6", (v) => formatPct(v)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Cost per Add to Cart"
                 value={formatCurrency(kpis.costPerAddToCart, client.currency)}
                 delta={0}
@@ -415,7 +415,7 @@ export default function AnalyticsPage() {
                 invertDelta
                 onClick={() => setKpiDetail(buildDetail("Cost per Add to Cart", <DollarSign size={18} />, formatCurrency(kpis.costPerAddToCart, client.currency), "addToCartRate", "#F59E0B", (v) => formatCurrency(v, client.currency)))}
               />
-              <KpiCard
+              <KpiCard loading={loading}
                 title="Cost per Session"
                 value={formatCurrency(kpis.costPerSession, client.currency)}
                 delta={0}

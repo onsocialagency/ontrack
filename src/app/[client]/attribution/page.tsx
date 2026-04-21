@@ -585,18 +585,44 @@ export default function AttributionPage() {
     return aggregateWindsorCampaigns(venueFilteredData);
   }, [isLive, venueFilteredData]);
 
+  // Model-adjusted conversion scaling factors per platform
+  const adjustmentFactors = useMemo(() => {
+    if (!attribution?.allResults) return { meta: 1, google: 1 };
+    const modelResult = attribution.allResults.results[activeModel];
+    if (!modelResult) return { meta: 1, google: 1 };
+
+    const rawMeta = attribution.allResults.rawMetaConversions;
+    const rawGoogle = attribution.allResults.rawGoogleConversions;
+
+    return {
+      meta: rawMeta > 0 ? modelResult.meta.conversions / rawMeta : 1,
+      google: rawGoogle > 0 ? modelResult.google.conversions / rawGoogle : 1,
+    };
+  }, [attribution, activeModel]);
+
   // Daily sparkline data for KPI cards
   const sparklines = useMemo(() => {
     if (!isLive || !venueFilteredData?.length) return null;
 
-    // Group by date
-    const byDate: Record<string, { spend: number; revenue: number; conversions: number }> = {};
+    // Group by date — split conversions and spend per platform so each
+    // platform-specific KPI card shows its own series, not a blended total.
+    const byDate: Record<string, { spend: number; revenue: number; conversions: number; metaConversions: number; googleConversions: number; metaSpend: number; googleSpend: number }> = {};
     for (const r of venueFilteredData) {
       const d = r.date || "unknown";
-      if (!byDate[d]) byDate[d] = { spend: 0, revenue: 0, conversions: 0 };
-      byDate[d].spend += Number(r.spend) || 0;
+      if (!byDate[d]) byDate[d] = { spend: 0, revenue: 0, conversions: 0, metaConversions: 0, googleConversions: 0, metaSpend: 0, googleSpend: 0 };
+      const spend = Number(r.spend) || 0;
+      const conv = Number(r.conversions) || 0;
+      byDate[d].spend += spend;
       byDate[d].revenue += Number(r.revenue) || 0;
-      byDate[d].conversions += Number(r.conversions) || 0;
+      byDate[d].conversions += conv;
+      const platform = classifyPlatform(r.source);
+      if (platform === "meta") {
+        byDate[d].metaConversions += conv;
+        byDate[d].metaSpend += spend;
+      } else if (platform === "google") {
+        byDate[d].googleConversions += conv;
+        byDate[d].googleSpend += spend;
+      }
     }
 
     const sorted = Object.entries(byDate)
@@ -612,27 +638,17 @@ export default function AttributionPage() {
     return {
       revenue: sorted.map((d) => ({ v: d.revenue, label: d.date })),
       conversions: sorted.map((d) => ({ v: d.conversions, label: d.date })),
+      // Scale by model-adjustment factors so daily values sum to the headline KPI under non-last-click models
+      metaConversions: sorted.map((d) => ({ v: d.metaConversions * adjustmentFactors.meta, label: d.date })),
+      googleConversions: sorted.map((d) => ({ v: d.googleConversions * adjustmentFactors.google, label: d.date })),
+      metaSpend: sorted.map((d) => ({ v: d.metaSpend, label: d.date })),
+      googleSpend: sorted.map((d) => ({ v: d.googleSpend, label: d.date })),
       roas: sorted.map((d) => ({ v: d.roas, label: d.date })),
       cpa: sorted.map((d) => ({ v: d.cpa, label: d.date })),
       mer: sorted.map((d) => ({ v: d.mer, label: d.date })),
       spend: sorted.map((d) => ({ v: d.spend, label: d.date })),
     };
-  }, [isLive, venueFilteredData]);
-
-  // Model-adjusted conversion scaling factors per platform
-  const adjustmentFactors = useMemo(() => {
-    if (!attribution?.allResults) return { meta: 1, google: 1 };
-    const modelResult = attribution.allResults.results[activeModel];
-    if (!modelResult) return { meta: 1, google: 1 };
-
-    const rawMeta = attribution.allResults.rawMetaConversions;
-    const rawGoogle = attribution.allResults.rawGoogleConversions;
-
-    return {
-      meta: rawMeta > 0 ? modelResult.meta.conversions / rawMeta : 1,
-      google: rawGoogle > 0 ? modelResult.google.conversions / rawGoogle : 1,
-    };
-  }, [attribution, activeModel]);
+  }, [isLive, venueFilteredData, adjustmentFactors]);
 
   /* ── Campaign table logic ── */
 
@@ -979,17 +995,17 @@ export default function AttributionPage() {
 
           {/* ── KPI Grid — 4 metric cards ── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-            <KpiCard
+            <KpiCard loading={windsorLoading}
               title="Meta Conversions"
               value={formatNumber(currentModel ? currentModel.metaConversions : 0)}
               delta={0}
               icon={<MetaIcon size={12} />}
               tooltip="Conversions attributed to Meta Ads under the selected model"
-              sparkline={sparklines?.conversions}
+              sparkline={sparklines?.metaConversions}
               accentColor="#3B82F6"
               onClick={() => setKpiDetail({
                 title: "Meta Conversions", icon: <MetaIcon size={18} />, currentValue: formatNumber(currentModel ? currentModel.metaConversions : 0),
-                currentLabel: `${MODEL_LABELS[activeModel]} model`, dailyData: sparklines?.conversions?.map((d) => ({ date: d.label || "", current: d.v })) || [],
+                currentLabel: `${MODEL_LABELS[activeModel]} model`, dailyData: sparklines?.metaConversions?.map((d) => ({ date: d.label || "", current: d.v })) || [],
                 breakdown: [
                   { name: "Meta Spend", value: metaSpend, formatted: formatCurrency(metaSpend, client.currency), color: "#3B82F6" },
                   { name: "Meta ROAS", value: currentModel?.metaRoas ?? 0, formatted: formatROAS(currentModel?.metaRoas ?? 0), color: "#22C55E" },
@@ -997,17 +1013,17 @@ export default function AttributionPage() {
                 accentColor: "#3B82F6", formatValue: (v) => formatNumber(v),
               })}
             />
-            <KpiCard
+            <KpiCard loading={windsorLoading}
               title="Google Conversions"
               value={formatNumber(currentModel ? currentModel.googleConversions : 0)}
               delta={0}
               icon={<GoogleIcon size={12} />}
               tooltip="Conversions attributed to Google Ads under the selected model"
-              sparkline={sparklines?.conversions}
+              sparkline={sparklines?.googleConversions}
               accentColor="#22C55E"
               onClick={() => setKpiDetail({
                 title: "Google Conversions", icon: <GoogleIcon size={18} />, currentValue: formatNumber(currentModel ? currentModel.googleConversions : 0),
-                currentLabel: `${MODEL_LABELS[activeModel]} model`, dailyData: sparklines?.conversions?.map((d) => ({ date: d.label || "", current: d.v })) || [],
+                currentLabel: `${MODEL_LABELS[activeModel]} model`, dailyData: sparklines?.googleConversions?.map((d) => ({ date: d.label || "", current: d.v })) || [],
                 breakdown: [
                   { name: "Google Spend", value: googleSpend, formatted: formatCurrency(googleSpend, client.currency), color: "#22C55E" },
                   { name: "Google ROAS", value: currentModel?.googleRoas ?? 0, formatted: formatROAS(currentModel?.googleRoas ?? 0), color: "#3B82F6" },
@@ -1017,7 +1033,7 @@ export default function AttributionPage() {
             />
             {isLeadGen ? (
               <>
-                <KpiCard
+                <KpiCard loading={windsorLoading}
                   title="Total Spend"
                   value={formatCurrency(totalSpend, client.currency)}
                   delta={0}
@@ -1026,7 +1042,7 @@ export default function AttributionPage() {
                   sparkline={sparklines?.spend}
                   accentColor="#FF6A41"
                 />
-                <KpiCard
+                <KpiCard loading={windsorLoading}
                   title="Blended CPL"
                   value={totalConversions > 0 ? formatCurrency(totalSpend / totalConversions, client.currency) : "—"}
                   delta={0}
@@ -1038,7 +1054,7 @@ export default function AttributionPage() {
               </>
             ) : (
               <>
-                <KpiCard
+                <KpiCard loading={windsorLoading}
                   title="Blended ROAS"
                   value={formatROAS(modelBlendedRoas)}
                   delta={0}
@@ -1056,7 +1072,7 @@ export default function AttributionPage() {
                     accentColor: "#FF6A41", formatValue: (v) => `${v.toFixed(2)}x`,
                   })}
                 />
-                <KpiCard
+                <KpiCard loading={windsorLoading}
                   title="MER"
                   value={formatROAS(mer)}
                   delta={0}

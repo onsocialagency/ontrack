@@ -203,6 +203,15 @@ export interface FormBreakdown {
   total: number;
 }
 
+/** Daily rollup of verification status, keyed by contact createdate (YYYY-MM-DD). */
+export interface VerifiedByDateBreakdown {
+  date: string;
+  total: number;
+  verified: number;
+  heuristicPaid: number;
+  other: number;
+}
+
 export interface ReconciliationResult {
   /** Total HubSpot contacts whose createdate falls in the window. */
   totalHubSpotLeads: number;
@@ -222,6 +231,9 @@ export interface ReconciliationResult {
   byEnquiryType: EnquiryTypeBreakdown[];
   /** Rollup by WPForms form ID extracted from conversion event names. */
   byForm: FormBreakdown[];
+  /** Daily bucketed verification counts — sparkline source for the Verified
+   *  Ad Leads and Verified CPL cards. */
+  byDate: VerifiedByDateBreakdown[];
   /** Contacts with analyticsSource = null/OFFLINE/OTHER — can't be attributed. */
   unattributed: HubSpotContact[];
 }
@@ -253,6 +265,8 @@ export function reconcileLeads(
   type ETAgg = { total: number; verified: number; heuristicPaid: number; other: number };
   const enquiryCounts = new Map<string, ETAgg>();
   const formCounts = new Map<string, number>();
+  type DateAgg = { total: number; verified: number; heuristicPaid: number; other: number };
+  const dateCounts = new Map<string, DateAgg>();
 
   for (const c of contacts) {
     // Primary: hs_analytics_source. Override when a click-ID or utm_source
@@ -297,6 +311,18 @@ export function reconcileLeads(
     if (formId) {
       formCounts.set(formId, (formCounts.get(formId) ?? 0) + 1);
     }
+
+    // Daily bucket — strip time portion off createdate so all ISO variants
+    // (2026-04-17, 2026-04-17T09:31:00Z, 2026-04-17 09:31:00) land in one slot.
+    const rawDate = (c.createdate ?? "").slice(0, 10);
+    if (rawDate) {
+      const agg = dateCounts.get(rawDate) ?? { total: 0, verified: 0, heuristicPaid: 0, other: 0 };
+      agg.total += 1;
+      if (status === "verified") agg.verified += 1;
+      else if (status === "heuristic_paid") agg.heuristicPaid += 1;
+      else agg.other += 1;
+      dateCounts.set(rawDate, agg);
+    }
   }
 
   // Only the paid channels have a corresponding platform-claimed number.
@@ -331,6 +357,10 @@ export function reconcileLeads(
     .map(([formId, total]) => ({ formId, total }))
     .sort((a, b) => b.total - a.total);
 
+  const byDate: VerifiedByDateBreakdown[] = Array.from(dateCounts.entries())
+    .map(([date, a]) => ({ date, ...a }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   return {
     totalHubSpotLeads: contacts.length,
     totalPlatformClaimed: platformTotals.total,
@@ -340,6 +370,7 @@ export function reconcileLeads(
     byLeadType,
     byEnquiryType,
     byForm,
+    byDate,
     unattributed,
   };
 }
