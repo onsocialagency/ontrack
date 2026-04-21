@@ -953,13 +953,6 @@ const HUBSPOT_CONTACT_FIELDS = [
   "contact_hs_google_click_id",
   "contact_hs_facebook_click_id",
   "contact_enquiry_type",
-  // Speculative custom properties — rename here once the HubSpot side confirms
-  // the actual property internal names. Windsor will 400 with the allowed
-  // field list if these don't exist, so you'll see which to correct.
-  "contact_unique_event_id",
-  "contact_deal_stage",
-  "contact_amount",
-  "contact_closedate",
 ];
 
 function normalizeHubSpotContact(raw: Record<string, unknown>): HubSpotContact {
@@ -1030,11 +1023,11 @@ export async function getWindsorHubSpotContacts(
     for (const row of raw) {
       results.push(normalizeHubSpotContact(row));
     }
+    setCache(cacheKey, results);
   } catch (err) {
     console.error("[Windsor] HubSpot fetch failed:", err);
   }
 
-  setCache(cacheKey, results);
   return results;
 }
 
