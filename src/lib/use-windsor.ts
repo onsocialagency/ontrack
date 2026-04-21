@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 
 interface UseWindsorOptions {
   clientSlug: string;
-  type?: "campaigns" | "creatives" | "ga4" | "rsa_assets" | "keyword_qs" | "search_terms" | "tiktok_creatives";
+  type?: "campaigns" | "creatives" | "ga4" | "rsa_assets" | "keyword_qs" | "search_terms" | "tiktok_creatives" | "hubspot";
   days?: number;
   /** YYYY-MM-DD start date — when provided, uses date range instead of days preset */
   dateFrom?: string;

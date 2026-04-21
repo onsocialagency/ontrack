@@ -10,7 +10,7 @@ import { DataBlur } from "@/components/ui/data-blur";
 import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
-import type { WindsorRow } from "@/lib/windsor";
+import type { HubSpotContact, WindsorRow } from "@/lib/windsor";
 import { classifyPlatform, sumConversions, rowConversions } from "@/lib/windsor";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
@@ -214,6 +214,15 @@ export default function MinistryOverview() {
     dateTo: prevDateTo,
   });
 
+  // HubSpot confirmed leads for the same range — headline metric for Ministry.
+  const { data: hubspotData } = useWindsor<HubSpotContact[]>({
+    clientSlug,
+    type: "hubspot",
+    days,
+    ...(preset === "Custom" ? { dateFrom, dateTo } : {}),
+  });
+  const hubspotConfirmed = hubspotData?.length ?? 0;
+
   const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
 
   // Aggregate current period
@@ -329,7 +338,7 @@ export default function MinistryOverview() {
 
         <DataBlur isBlurred={dataSource !== "windsor" && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
         {/* ── SECTION 1: KPI Strip ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
           <KpiCard
             title="Total Spend"
             value={formatCurrency(current.totalSpend, "GBP")}
@@ -346,15 +355,15 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard
-            title="Conversions"
+            title="Platform Claimed"
             value={formatNumber(current.totalConversions)}
             delta={deltas.conversions}
             icon={<Users size={12} />}
-            tooltip="EnquiryForm + DayPass events only — platform reported"
+            tooltip="Conversions reported by Meta + Google pixels — includes post-view"
             sparkline={sparklines.conversions}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
-              "Conversions", <Users size={18} />,
+              "Platform Claimed", <Users size={18} />,
               formatNumber(current.totalConversions),
               "conversions",
               [
@@ -366,17 +375,25 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard
+            title="HubSpot Confirmed"
+            value={formatNumber(hubspotConfirmed)}
+            delta={0}
+            icon={<Users size={12} />}
+            tooltip="Contacts created in HubSpot during this period — the headline number"
+            accentColor={ACCENT}
+          />
+          <KpiCard
             title="Blended CPL"
-            value={formatCurrency(current.blendedCpl, "GBP")}
+            value={hubspotConfirmed > 0 ? formatCurrency(current.totalSpend / hubspotConfirmed, "GBP") : "—"}
             delta={deltas.cpl}
             invertDelta
             icon={<TrendingDown size={12} />}
-            tooltip="Total spend / total conversions — platform reported"
+            tooltip="Total spend / HubSpot-confirmed leads. Falls back to platform-claimed when HubSpot has no data."
             sparkline={sparklines.spend}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
               "Blended CPL", <TrendingDown size={18} />,
-              formatCurrency(current.blendedCpl, "GBP"),
+              hubspotConfirmed > 0 ? formatCurrency(current.totalSpend / hubspotConfirmed, "GBP") : formatCurrency(current.blendedCpl, "GBP"),
               "spend", platformBreakdown, ACCENT,
               (v) => formatCurrency(v, "GBP"),
             ))}
@@ -414,10 +431,11 @@ export default function MinistryOverview() {
         </div>
 
         {/* Source labels beneath KPI strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 -mt-1">
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4 -mt-1">
           <div />
           <p className="text-[9px] text-[#94A3B8]/60 pl-4">Platform reported</p>
-          <p className="text-[9px] text-[#94A3B8]/60 pl-4">Platform reported</p>
+          <p className="text-[9px] pl-4" style={{ color: MINISTRY_BRAND.accentColor }}>CRM confirmed</p>
+          <p className="text-[9px] text-[#94A3B8]/60 pl-4">Spend ÷ CRM</p>
           <div />
           <div />
         </div>
