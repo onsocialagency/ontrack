@@ -455,6 +455,7 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard loading={windsorLoading}
+            attributionSource="platform-claimed"
             title="Platform Claimed"
             value={formatNumber(current.totalConversions)}
             delta={deltas.conversions}
@@ -475,6 +476,7 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard loading={windsorLoading}
+            attributionSource="crm-verified"
             title="Verified Ad Leads"
             value={formatNumber(verifiedAdLeads)}
             delta={deltas.verifiedLeads}

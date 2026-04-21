@@ -144,6 +144,13 @@ export function classifyVerification(
   contact: HubSpotContact,
   windsorRows: WindsorRow[],
 ): VerificationStatus {
+  // 0. Unique Event ID — deterministic join key written by GTM on form submit
+  //    and mirrored to Meta CAPI + Google + HubSpot. If present this is
+  //    proof-of-ad-lead without any heuristics (Ministry brief §5.3).
+  if (contact.uniqueEventId) {
+    return "verified";
+  }
+
   // 1. Click-ID proofs. If HubSpot captured an fbclid/gclid, the user reached
   //    the site from an ad click — no heuristic needed. Meta/Google append
   //    these parameters to every ad-clickthrough URL.

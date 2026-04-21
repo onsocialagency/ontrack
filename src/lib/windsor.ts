@@ -909,6 +909,17 @@ export interface HubSpotContact {
   facebookClickId: string | null;
   /** Ministry data-layer field — e.g. "Club / Off Peak", "Private Office". */
   enquiryType: string | null;
+  /** Custom form-submission UUID sent via GTM to Meta CAPI + Google + stored
+   *  on the HubSpot contact. When present, this is the deterministic join key
+   *  (no heuristics needed). Foundation per Ministry brief §5.3. */
+  uniqueEventId: string | null;
+  /** Associated deal stage from HubSpot — used for Lead→Customer conversion
+   *  reporting (brief §6 "future optional"). */
+  dealStage: string | null;
+  /** Closed-won deal amount (GBP) for revenue / CPA reporting. */
+  dealAmount: number | null;
+  /** Deal close date — lets us compute lead→customer conversion lag. */
+  dealCloseDate: string | null;
 }
 
 const HUBSPOT_CONTACT_FIELDS = [
@@ -942,6 +953,13 @@ const HUBSPOT_CONTACT_FIELDS = [
   "contact_hs_google_click_id",
   "contact_hs_facebook_click_id",
   "contact_enquiry_type",
+  // Speculative custom properties — rename here once the HubSpot side confirms
+  // the actual property internal names. Windsor will 400 with the allowed
+  // field list if these don't exist, so you'll see which to correct.
+  "contact_unique_event_id",
+  "contact_deal_stage",
+  "contact_amount",
+  "contact_closedate",
 ];
 
 function normalizeHubSpotContact(raw: Record<string, unknown>): HubSpotContact {
@@ -980,6 +998,10 @@ function normalizeHubSpotContact(raw: Record<string, unknown>): HubSpotContact {
     googleClickId: str(raw.contact_hs_google_click_id),
     facebookClickId: str(raw.contact_hs_facebook_click_id),
     enquiryType: str(raw.contact_enquiry_type),
+    uniqueEventId: str(raw.contact_unique_event_id),
+    dealStage: str(raw.contact_deal_stage),
+    dealAmount: raw.contact_amount != null && raw.contact_amount !== "" ? Number(raw.contact_amount) : null,
+    dealCloseDate: str(raw.contact_closedate),
   };
 }
 

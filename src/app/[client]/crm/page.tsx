@@ -99,7 +99,6 @@ export default function CrmReconciliationPage() {
   }
 
   const currency = client.currency ?? "GBP";
-  const hasHubSpot = contacts.length > 0 || !hubspotLoading;
   const loading = windsorLoading || hubspotLoading;
 
   return (
@@ -367,7 +366,7 @@ export default function CrmReconciliationPage() {
           <div className="p-4 sm:p-5 border-b border-white/[0.06]">
             <h2 className="text-lg font-semibold text-white">Lead Type Performance vs Targets</h2>
             <p className="text-xs text-[#94A3B8] mt-1">
-              HubSpot lead types inferred from the contact's conversion event name
+              HubSpot lead types inferred from the contact&apos;s conversion event name
             </p>
           </div>
 

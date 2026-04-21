@@ -996,6 +996,7 @@ export default function AttributionPage() {
           {/* ── KPI Grid — 4 metric cards ── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <KpiCard loading={windsorLoading}
+              attributionSource="post-click"
               title="Meta Conversions"
               value={formatNumber(currentModel ? currentModel.metaConversions : 0)}
               delta={0}
@@ -1014,6 +1015,7 @@ export default function AttributionPage() {
               })}
             />
             <KpiCard loading={windsorLoading}
+              attributionSource="post-click"
               title="Google Conversions"
               value={formatNumber(currentModel ? currentModel.googleConversions : 0)}
               delta={0}

@@ -31,6 +31,11 @@ interface KpiCardProps {
   invertDelta?: boolean;
   /** When true, the numeric value + delta + sparkline are blurred to indicate pending data. */
   loading?: boolean;
+  /** Attribution model badge: tells the reader whether the number is
+   *  post-click, post-view, CRM-confirmed, platform-reported, etc.
+   *  Required by Ministry brief §10 — never show a conversion count
+   *  without labelling which model produced it. */
+  attributionSource?: "post-click" | "post-view" | "platform-claimed" | "crm-verified" | "crm-total" | "blended";
 }
 
 /* ── Sparkline Tooltip ── */
@@ -70,7 +75,16 @@ export function KpiCard({
   size = "default",
   invertDelta = false,
   loading = false,
+  attributionSource,
 }: KpiCardProps) {
+  const attributionLabel: Record<NonNullable<KpiCardProps["attributionSource"]>, string> = {
+    "post-click": "Post-click",
+    "post-view": "Post-view",
+    "platform-claimed": "Platform",
+    "crm-verified": "CRM verified",
+    "crm-total": "CRM total",
+    blended: "Blended",
+  };
   // For cost metrics (CPA, CPL), a decrease is good (green) and increase is bad (red)
   const isPositive = invertDelta ? delta <= 0 : delta >= 0;
   const hasDelta = delta !== 0;
@@ -173,6 +187,13 @@ export function KpiCard({
           {value}
         </span>
       </div>
+
+      {/* Attribution source badge */}
+      {attributionSource && (
+        <span className="inline-flex self-start mt-0.5 mb-1 px-1.5 py-0.5 rounded-md text-[9px] font-semibold tracking-wide uppercase bg-white/[0.04] text-[#A8BBCC]/70 border border-white/[0.06]">
+          {attributionLabel[attributionSource]}
+        </span>
+      )}
 
       {/* Previous period comparison text */}
       {(previousValue || subLabel) && (

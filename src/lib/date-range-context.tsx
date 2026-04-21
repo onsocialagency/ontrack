@@ -46,15 +46,15 @@ function presetToRange(preset: DatePreset): DateRange {
       return { from: y, to: y };
     }
     case "7D":
-      return { from: subDays(now, 7), to: now };
+      return { from: subDays(today, 6), to: now };
     case "14D":
-      return { from: subDays(now, 14), to: now };
+      return { from: subDays(today, 13), to: now };
     case "30D":
-      return { from: subDays(now, 30), to: now };
+      return { from: subDays(today, 29), to: now };
     case "90D":
-      return { from: subDays(now, 90), to: now };
+      return { from: subDays(today, 89), to: now };
     case "365D":
-      return { from: subDays(now, 365), to: now };
+      return { from: subDays(today, 364), to: now };
     case "Last Month": {
       const prev = subMonths(today, 1);
       return { from: startOfMonth(prev), to: endOfMonth(prev) };
@@ -62,7 +62,7 @@ function presetToRange(preset: DatePreset): DateRange {
     case "MTD":
       return { from: startOfMonth(now), to: now };
     default:
-      return { from: subDays(now, 30), to: now };
+      return { from: subDays(today, 29), to: now };
   }
 }
 
@@ -77,7 +77,7 @@ export function DateRangeProvider({ children }: { children: React.ReactNode }) {
   }, [preset, customRange]);
 
   const days = useMemo(() => {
-    return Math.max(1, differenceInCalendarDays(dateRange.to, dateRange.from));
+    return Math.max(1, differenceInCalendarDays(dateRange.to, dateRange.from) + 1);
   }, [dateRange]);
 
   const dateFrom = useMemo(() => format(dateRange.from, "yyyy-MM-dd"), [dateRange]);
