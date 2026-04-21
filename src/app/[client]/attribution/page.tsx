@@ -29,11 +29,13 @@ import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import { MetricCell } from "@/components/ui/metric-cell";
 import {
   TrendingUp,
+  TrendingDown,
   BarChart3,
   ChevronRight,
   ChevronDown,
   Download,
   Circle,
+  DollarSign,
   Info,
 } from "lucide-react";
 import {
@@ -613,6 +615,7 @@ export default function AttributionPage() {
       roas: sorted.map((d) => ({ v: d.roas, label: d.date })),
       cpa: sorted.map((d) => ({ v: d.cpa, label: d.date })),
       mer: sorted.map((d) => ({ v: d.mer, label: d.date })),
+      spend: sorted.map((d) => ({ v: d.spend, label: d.date })),
     };
   }, [isLive, venueFilteredData]);
 
@@ -931,32 +934,45 @@ export default function AttributionPage() {
 
   return (
     <>
-      <Header title="Attribution & Campaigns" showAttribution dataBadge={{ loading: windsorLoading, isLive: !!isLive }} filterRow={isIrg ? <VenueTabs /> : undefined} />
+      <Header title={isLeadGen ? "Campaigns & Leads" : "Attribution & Campaigns"} showAttribution={!isLeadGen} dataBadge={{ loading: windsorLoading, isLive: !!isLive }} filterRow={isIrg ? <VenueTabs /> : undefined} />
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 overflow-y-auto overflow-x-hidden min-w-0">
         <div className="space-y-4 sm:space-y-5">
 
-          {/* ── Top bar: Model description ── */}
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-[11px] text-[#94A3B8]">
-              <span className="font-semibold text-white">{MODEL_LABELS[activeModel]}</span>
-              {" — "}
-              {MODEL_DESCRIPTIONS[activeModel]}
-            </p>
-          </div>
+          {/* ── Top bar: Model description (ecom only — lead-gen doesn't use attribution models) ── */}
+          {!isLeadGen && (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[11px] text-[#94A3B8]">
+                <span className="font-semibold text-white">{MODEL_LABELS[activeModel]}</span>
+                {" — "}
+                {MODEL_DESCRIPTIONS[activeModel]}
+              </p>
+            </div>
+          )}
 
           {/* ── Transparency Banner ── */}
           <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg sm:rounded-xl p-3 flex items-start gap-2.5">
             <Info size={14} className="text-[#FF6A41] flex-shrink-0 mt-0.5" />
             <p className="text-[11px] text-[#94A3B8] leading-relaxed">
-              Attribution models are calculated from Meta and Google platform data. Numbers reflect different ways of
-              interpreting the same spend and conversion data — not independently tracked user journeys.
-              MER is the only fully independent metric.
-              {activeModel !== "lastClick" && (
-                <span className="text-[#64748B] ml-1">
-                  Platform totals are deduplicated using an industry-standard overlap factor.
-                  Actual figures depend on your specific customer journey mix.
-                </span>
+              {isLeadGen ? (
+                <>
+                  Lead-gen view — figures show spend, platform-reported leads, and CPL by platform and
+                  campaign. Attribution models and ROAS aren&apos;t shown because revenue isn&apos;t
+                  available at lead stage; the question this page answers is <span className="text-white font-semibold">which ads
+                  drove which leads, and at what cost</span>.
+                </>
+              ) : (
+                <>
+                  Attribution models are calculated from Meta and Google platform data. Numbers reflect different ways of
+                  interpreting the same spend and conversion data — not independently tracked user journeys.
+                  MER is the only fully independent metric.
+                  {activeModel !== "lastClick" && (
+                    <span className="text-[#64748B] ml-1">
+                      Platform totals are deduplicated using an industry-standard overlap factor.
+                      Actual figures depend on your specific customer journey mix.
+                    </span>
+                  )}
+                </>
               )}
             </p>
           </div>
@@ -999,43 +1015,68 @@ export default function AttributionPage() {
                 accentColor: "#22C55E", formatValue: (v) => formatNumber(v),
               })}
             />
-            <KpiCard
-              title="Blended ROAS"
-              value={formatROAS(modelBlendedRoas)}
-              delta={0}
-              icon={<TrendingUp size={12} />}
-              tooltip="Blended Return on Ad Spend under the selected attribution model"
-              sparkline={sparklines?.roas}
-              accentColor="#FF6A41"
-              onClick={() => setKpiDetail({
-                title: "Blended ROAS", icon: <TrendingUp size={18} />, currentValue: formatROAS(modelBlendedRoas),
-                currentLabel: `${MODEL_LABELS[activeModel]} model`, dailyData: sparklines?.roas?.map((d) => ({ date: d.label || "", current: d.v })) || [],
-                breakdown: [
-                  { name: "Meta ROAS", value: currentModel?.metaRoas ?? 0, formatted: formatROAS(currentModel?.metaRoas ?? 0), color: "#3B82F6" },
-                  { name: "Google ROAS", value: currentModel?.googleRoas ?? 0, formatted: formatROAS(currentModel?.googleRoas ?? 0), color: "#22C55E" },
-                ],
-                accentColor: "#FF6A41", formatValue: (v) => `${v.toFixed(2)}x`,
-              })}
-            />
-            <KpiCard
-              title="MER"
-              value={formatROAS(mer)}
-              delta={0}
-              icon={<BarChart3 size={12} />}
-              tooltip="Marketing Efficiency Ratio — total revenue / total spend. Attribution-independent — always fixed regardless of model."
-              sparkline={sparklines?.mer}
-              accentColor="#8B5CF6"
-              prefix="Fixed"
-              onClick={() => setKpiDetail({
-                title: "MER", icon: <BarChart3 size={18} />, currentValue: formatROAS(mer),
-                currentLabel: "Attribution-independent", dailyData: sparklines?.mer?.map((d) => ({ date: d.label || "", current: d.v })) || [],
-                breakdown: [
-                  { name: "Total Revenue", value: totalRevenue, formatted: formatCurrency(totalRevenue, client.currency), color: "#22C55E" },
-                  { name: "Total Spend", value: totalSpend, formatted: formatCurrency(totalSpend, client.currency), color: "#FF6A41" },
-                ],
-                accentColor: "#8B5CF6", formatValue: (v) => `${v.toFixed(2)}x`,
-              })}
-            />
+            {isLeadGen ? (
+              <>
+                <KpiCard
+                  title="Total Spend"
+                  value={formatCurrency(totalSpend, client.currency)}
+                  delta={0}
+                  icon={<DollarSign size={12} />}
+                  tooltip="Meta + Google spend for the selected period"
+                  sparkline={sparklines?.spend}
+                  accentColor="#FF6A41"
+                />
+                <KpiCard
+                  title="Blended CPL"
+                  value={totalConversions > 0 ? formatCurrency(totalSpend / totalConversions, client.currency) : "—"}
+                  delta={0}
+                  icon={<TrendingDown size={12} />}
+                  tooltip="Total spend ÷ platform-reported leads. Per-platform CPL shown in the table below."
+                  sparkline={sparklines?.conversions}
+                  accentColor="#8B5CF6"
+                />
+              </>
+            ) : (
+              <>
+                <KpiCard
+                  title="Blended ROAS"
+                  value={formatROAS(modelBlendedRoas)}
+                  delta={0}
+                  icon={<TrendingUp size={12} />}
+                  tooltip="Blended Return on Ad Spend under the selected attribution model"
+                  sparkline={sparklines?.roas}
+                  accentColor="#FF6A41"
+                  onClick={() => setKpiDetail({
+                    title: "Blended ROAS", icon: <TrendingUp size={18} />, currentValue: formatROAS(modelBlendedRoas),
+                    currentLabel: `${MODEL_LABELS[activeModel]} model`, dailyData: sparklines?.roas?.map((d) => ({ date: d.label || "", current: d.v })) || [],
+                    breakdown: [
+                      { name: "Meta ROAS", value: currentModel?.metaRoas ?? 0, formatted: formatROAS(currentModel?.metaRoas ?? 0), color: "#3B82F6" },
+                      { name: "Google ROAS", value: currentModel?.googleRoas ?? 0, formatted: formatROAS(currentModel?.googleRoas ?? 0), color: "#22C55E" },
+                    ],
+                    accentColor: "#FF6A41", formatValue: (v) => `${v.toFixed(2)}x`,
+                  })}
+                />
+                <KpiCard
+                  title="MER"
+                  value={formatROAS(mer)}
+                  delta={0}
+                  icon={<BarChart3 size={12} />}
+                  tooltip="Marketing Efficiency Ratio — total revenue / total spend. Attribution-independent — always fixed regardless of model."
+                  sparkline={sparklines?.mer}
+                  accentColor="#8B5CF6"
+                  prefix="Fixed"
+                  onClick={() => setKpiDetail({
+                    title: "MER", icon: <BarChart3 size={18} />, currentValue: formatROAS(mer),
+                    currentLabel: "Attribution-independent", dailyData: sparklines?.mer?.map((d) => ({ date: d.label || "", current: d.v })) || [],
+                    breakdown: [
+                      { name: "Total Revenue", value: totalRevenue, formatted: formatCurrency(totalRevenue, client.currency), color: "#22C55E" },
+                      { name: "Total Spend", value: totalSpend, formatted: formatCurrency(totalSpend, client.currency), color: "#FF6A41" },
+                    ],
+                    accentColor: "#8B5CF6", formatValue: (v) => `${v.toFixed(2)}x`,
+                  })}
+                />
+              </>
+            )}
           </div>
 
           {/* ── Channel & Campaign Table (merged) ── */}
@@ -1332,7 +1373,7 @@ export default function AttributionPage() {
           })()}
 
           {/* ── Donut Chart + Platform Details — 2 cards ── */}
-          {currentModel && (
+          {!isLeadGen && currentModel && (
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-5">
               {/* Donut: Conversion Credit Split */}
               <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-3">
@@ -1464,8 +1505,8 @@ export default function AttributionPage() {
             </div>
           )}
 
-          {/* ── All Models ROAS Comparison Bar Chart ── */}
-          {attribution && (
+          {/* ── All Models ROAS Comparison Bar Chart (ecom only) ── */}
+          {!isLeadGen && attribution && (
             <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-3">
               <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
                 ROAS by Model — Meta vs Google

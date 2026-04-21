@@ -52,27 +52,65 @@ export function categoriseLeadType(eventName: string | null | undefined): LeadTy
 /**
  * Extract a Meta campaign identifier from the HubSpot `first_url`. Meta's
  * Lead Ads pass `hsa_cam=<campaign_id>` and `utm_campaign=<name>` in the
- * landing URL. Returns whatever is most joinable to Windsor rows:
- *   { campaignId, campaignName, accountId }
+ * landing URL. Also captures `utm_source` and `utm_medium` so downstream
+ * code can tell paid traffic apart from organic social / email.
  */
 export function extractMetaCampaignFromFirstUrl(firstUrl: string | null | undefined): {
   campaignId: string | null;
   campaignName: string | null;
   accountId: string | null;
+  utmSource: string | null;
+  utmMedium: string | null;
 } {
-  const empty = { campaignId: null, campaignName: null, accountId: null };
+  const empty = { campaignId: null, campaignName: null, accountId: null, utmSource: null, utmMedium: null };
   if (!firstUrl) return empty;
   try {
-    // `first_url` is the landing URL — query string holds the hsa_/utm_ params.
     const url = new URL(firstUrl);
     const q = url.searchParams;
-    const campaignId = q.get("hsa_cam") || null;
-    const accountId = q.get("hsa_acc") || null;
-    const campaignName = q.get("utm_campaign") || null;
-    return { campaignId, campaignName, accountId };
+    return {
+      campaignId: q.get("hsa_cam") || null,
+      accountId: q.get("hsa_acc") || null,
+      campaignName: q.get("utm_campaign") || null,
+      utmSource: q.get("utm_source") || null,
+      utmMedium: q.get("utm_medium") || null,
+    };
   } catch {
     return empty;
   }
+}
+
+/** Returns true when `utm_medium` indicates a paid click (cpc, paid, ppc,
+ *  paidsocial, paid-social, paid_social). Spaces/underscores/dashes are
+ *  normalised so the same value in different notations is recognised. */
+export function isPaidUtmMedium(medium: string | null | undefined): boolean {
+  if (!medium) return false;
+  const m = medium.toLowerCase().replace(/[\s_-]/g, "");
+  return ["cpc", "ppc", "paid", "paidsocial", "paidsearch", "display"].includes(m);
+}
+
+/** Infer a Meta/Google-level channel from utm_source when set. */
+export function channelFromUtmSource(
+  utmSource: string | null | undefined,
+): "meta" | "google" | null {
+  if (!utmSource) return null;
+  const s = utmSource.toLowerCase();
+  if (s.includes("facebook") || s.includes("instagram") || s === "ig" || s === "fb" || s === "meta") return "meta";
+  if (s.includes("google") || s === "adwords") return "google";
+  return null;
+}
+
+/**
+ * Extract a form identifier from HubSpot's conversion event name. Ministry
+ * uses WPForms, which embeds selectors like `#wpforms-form-5192` inside the
+ * event name string. Returns the numeric form id when found.
+ */
+export function extractFormIdFromEvent(eventName: string | null | undefined): string | null {
+  if (!eventName) return null;
+  const wp = eventName.match(/wpforms-form-(\d+)/i);
+  if (wp) return wp[1];
+  const generic = eventName.match(/form[-_ ]?id[-_ :=]?\s*(\d+)/i);
+  if (generic) return generic[1];
+  return null;
 }
 
 /* ── Reconciliation ──────────────────────────────────────────────── */
@@ -106,25 +144,40 @@ export function classifyVerification(
   contact: HubSpotContact,
   windsorRows: WindsorRow[],
 ): VerificationStatus {
-  // Facebook Lead Ads events are end-to-end Meta-owned — the contact came
-  // from a lead form inside Meta's ecosystem, so it's verifiable as ad-driven
-  // even when the landing URL doesn't carry UTMs.
+  // 1. Click-ID proofs. If HubSpot captured an fbclid/gclid, the user reached
+  //    the site from an ad click — no heuristic needed. Meta/Google append
+  //    these parameters to every ad-clickthrough URL.
+  if (contact.facebookClickId || contact.googleClickId) {
+    return "verified";
+  }
+
+  // 2. Facebook Lead Ads events are end-to-end Meta-owned (the form lives
+  //    inside Meta). Verifiable as ad-driven even without UTMs.
   const eventName = (contact.recentConversionEventName ?? contact.firstConversionEventName ?? "").toLowerCase();
   if (eventName.includes("facebook lead") || eventName.includes("lead ads")) {
     return "verified";
   }
 
-  const { campaignId, campaignName } = extractMetaCampaignFromFirstUrl(contact.firstUrl);
+  const parsed = extractMetaCampaignFromFirstUrl(contact.firstUrl);
+  const { campaignId, campaignName, utmSource, utmMedium } = parsed;
+
+  // 3. Exact campaign-ID match against Windsor.
   if (campaignId) {
     const idMatch = windsorRows.some(
       (r) => (r.campaign_id as string | undefined) === campaignId,
     );
     if (idMatch) return "verified";
   }
+  // 4. Campaign-name match (utm_campaign, then HubSpot's analyticsSourceData2).
   const joinName = campaignName ?? contact.analyticsSourceData2 ?? null;
   if (joinName) {
     const nameMatch = windsorRows.some((r) => r.campaign === joinName);
     if (nameMatch) return "verified";
+  }
+  // 5. utm_medium says "paid" AND utm_source names a paid channel → verified
+  //    even when the campaign itself doesn't join (the URL proves ad-origin).
+  if (isPaidUtmMedium(utmMedium) && channelFromUtmSource(utmSource) !== null) {
+    return "verified";
   }
 
   const channel = mapAnalyticsSourceToChannel(contact.analyticsSource);
@@ -135,6 +188,19 @@ export function classifyVerification(
 export interface LeadTypeBreakdown {
   type: LeadType;
   count: number;
+}
+
+export interface EnquiryTypeBreakdown {
+  enquiryType: string;
+  total: number;
+  verified: number;
+  heuristicPaid: number;
+  other: number;
+}
+
+export interface FormBreakdown {
+  formId: string;
+  total: number;
 }
 
 export interface ReconciliationResult {
@@ -151,6 +217,11 @@ export interface ReconciliationResult {
   totalHeuristicPaid: number;
   byChannel: ChannelReconciliation[];
   byLeadType: LeadTypeBreakdown[];
+  /** Rollup by Ministry's `enquiry_type` data-layer value. `"(untagged)"` bucket
+   *  captures contacts where the property was empty. */
+  byEnquiryType: EnquiryTypeBreakdown[];
+  /** Rollup by WPForms form ID extracted from conversion event names. */
+  byForm: FormBreakdown[];
   /** Contacts with analyticsSource = null/OFFLINE/OTHER — can't be attributed. */
   unattributed: HubSpotContact[];
 }
@@ -179,8 +250,24 @@ export function reconcileLeads(
   let totalAdVerified = 0;
   let totalHeuristicPaid = 0;
 
+  type ETAgg = { total: number; verified: number; heuristicPaid: number; other: number };
+  const enquiryCounts = new Map<string, ETAgg>();
+  const formCounts = new Map<string, number>();
+
   for (const c of contacts) {
-    const channel = mapAnalyticsSourceToChannel(c.analyticsSource);
+    // Primary: hs_analytics_source. Override when a click-ID or utm_source
+    // proves a different channel (HubSpot often tags real Meta clicks as
+    // OTHER_CAMPAIGNS when GA wasn't decorating the URL).
+    let channel: LeadChannel = mapAnalyticsSourceToChannel(c.analyticsSource);
+    if (c.facebookClickId) channel = "meta";
+    else if (c.googleClickId) channel = "google";
+    else {
+      const { utmSource, utmMedium } = extractMetaCampaignFromFirstUrl(c.firstUrl);
+      const utmChannel = channelFromUtmSource(utmSource);
+      if (utmChannel && (channel === "other" || channel === "direct" || isPaidUtmMedium(utmMedium))) {
+        channel = utmChannel;
+      }
+    }
     channelCounts[channel] += 1;
     if (channel === "other" || channel === "direct") {
       unattributed.push(c);
@@ -194,6 +281,21 @@ export function reconcileLeads(
       channelVerified[channel] += 1;
     } else if (status === "heuristic_paid") {
       totalHeuristicPaid += 1;
+    }
+
+    const et = c.enquiryType && c.enquiryType.trim() ? c.enquiryType.trim() : "(untagged)";
+    const agg = enquiryCounts.get(et) ?? { total: 0, verified: 0, heuristicPaid: 0, other: 0 };
+    agg.total += 1;
+    if (status === "verified") agg.verified += 1;
+    else if (status === "heuristic_paid") agg.heuristicPaid += 1;
+    else agg.other += 1;
+    enquiryCounts.set(et, agg);
+
+    const formId = extractFormIdFromEvent(
+      c.recentConversionEventName ?? c.firstConversionEventName,
+    );
+    if (formId) {
+      formCounts.set(formId, (formCounts.get(formId) ?? 0) + 1);
     }
   }
 
@@ -221,6 +323,14 @@ export function reconcileLeads(
   const byLeadType: LeadTypeBreakdown[] = (Object.keys(typeCounts) as LeadType[])
     .map((type) => ({ type, count: typeCounts[type] }));
 
+  const byEnquiryType: EnquiryTypeBreakdown[] = Array.from(enquiryCounts.entries())
+    .map(([enquiryType, a]) => ({ enquiryType, ...a }))
+    .sort((a, b) => b.total - a.total);
+
+  const byForm: FormBreakdown[] = Array.from(formCounts.entries())
+    .map(([formId, total]) => ({ formId, total }))
+    .sort((a, b) => b.total - a.total);
+
   return {
     totalHubSpotLeads: contacts.length,
     totalPlatformClaimed: platformTotals.total,
@@ -228,6 +338,8 @@ export function reconcileLeads(
     totalHeuristicPaid,
     byChannel,
     byLeadType,
+    byEnquiryType,
+    byForm,
     unattributed,
   };
 }
@@ -285,11 +397,21 @@ export function reconcileByCampaign(
   // Bucket HubSpot contacts onto campaigns.
   const hubspotByKey = new Map<string, number>();
   for (const c of contacts) {
-    const channel = mapAnalyticsSourceToChannel(c.analyticsSource);
+    // Apply the same channel override rules as reconcileLeads so a Meta
+    // click mis-tagged as OTHER_CAMPAIGNS still routes onto a Meta campaign.
+    const parsedChannel = mapAnalyticsSourceToChannel(c.analyticsSource);
+    const { utmSource, utmMedium } = extractMetaCampaignFromFirstUrl(c.firstUrl);
+    const utmChannel = channelFromUtmSource(utmSource);
+    let channel: LeadChannel = parsedChannel;
+    if (c.facebookClickId) channel = "meta";
+    else if (c.googleClickId) channel = "google";
+    else if (utmChannel && (channel === "other" || channel === "direct" || isPaidUtmMedium(utmMedium))) {
+      channel = utmChannel;
+    }
     if (channel !== "meta" && channel !== "google") continue;
     const { campaignId, campaignName } = extractMetaCampaignFromFirstUrl(c.firstUrl);
-    // Join preference: campaign ID → campaign name from URL → analyticsSourceData2.
-    const joinName = campaignName ?? c.analyticsSourceData2 ?? null;
+    // Join preference: campaign ID → campaign name from URL → analyticsSourceData2 → latestSourceData1.
+    const joinName = campaignName ?? c.analyticsSourceData2 ?? c.latestSourceData1 ?? null;
     const platform: Platform = channel;
     let key: string | null = null;
     if (campaignId) {

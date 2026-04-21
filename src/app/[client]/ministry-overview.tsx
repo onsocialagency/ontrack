@@ -12,7 +12,7 @@ import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { HubSpotContact, WindsorRow } from "@/lib/windsor";
 import { classifyPlatform, sumConversions, rowConversions } from "@/lib/windsor";
-import { reconcileLeads } from "@/lib/leadReconciliation";
+import { reconcileLeads, reconcileByCampaign } from "@/lib/leadReconciliation";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
@@ -23,6 +23,7 @@ import {
   CPL_STATUS_COLORS,
   filterValidConversions,
   aggregateByLeadType,
+  getLeadTypeFromCampaign,
   type LeadTypeBreakdown,
 } from "@/lib/ministry-config";
 import {
@@ -66,16 +67,19 @@ function generateMockData(days: number) {
   const dailySpend = totalSpend / days;
   const dailyConversions = totalConversions / days;
 
-  const daily: { date: string; spend: number; conversions: number }[] = [];
+  const daily: { date: string; spend: number; conversions: number; metaSpend: number; googleSpend: number }[] = [];
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const dateStr = d.toISOString().slice(0, 10);
     const jitter = 0.7 + Math.random() * 0.6;
+    const spendForDay = +(dailySpend * jitter).toFixed(2);
     daily.push({
       date: dateStr,
-      spend: +(dailySpend * jitter).toFixed(2),
+      spend: spendForDay,
       conversions: Math.round(dailyConversions * (0.6 + Math.random() * 0.8)),
+      metaSpend: +(spendForDay * metaRatio).toFixed(2),
+      googleSpend: +(spendForDay * (1 - metaRatio)).toFixed(2),
     });
   }
 
@@ -150,13 +154,18 @@ function aggregateWindsor(rows: WindsorRow[]) {
   const blendedCpl = totalConversions > 0 ? +(totalSpend / totalConversions).toFixed(2) : 0;
 
   // Daily aggregation mirrors the total-level fallback so the sparkline stays
-  // consistent with KPI totals (see rowConversions).
+  // consistent with KPI totals (see rowConversions). Per-platform daily rows
+  // feed the Meta/Google sparkline cards — no more spend*0.6 / spend*0.4 fakes.
   const useAllConvFallback = convSummary.usedGoogleAllFallback;
-  const byDate: Record<string, { date: string; spend: number; conversions: number }> = {};
+  const byDate: Record<string, { date: string; spend: number; conversions: number; metaSpend: number; googleSpend: number }> = {};
   for (const r of filtered) {
     if (!r.date) continue;
-    if (!byDate[r.date]) byDate[r.date] = { date: r.date, spend: 0, conversions: 0 };
-    byDate[r.date].spend += Number(r.spend) || 0;
+    if (!byDate[r.date]) byDate[r.date] = { date: r.date, spend: 0, conversions: 0, metaSpend: 0, googleSpend: 0 };
+    const rowSpend = Number(r.spend) || 0;
+    const platform = classifyPlatform(r.source);
+    byDate[r.date].spend += rowSpend;
+    if (platform === "meta") byDate[r.date].metaSpend += rowSpend;
+    else if (platform === "google") byDate[r.date].googleSpend += rowSpend;
     byDate[r.date].conversions += rowConversions(r, useAllConvFallback).conversions;
   }
   const daily = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
@@ -272,12 +281,13 @@ export default function MinistryOverview() {
     }));
   }, [current.daily, fmtDate]);
 
-  // Sparklines
+  // Sparklines — per-platform series come from the real daily split computed
+  // in aggregateWindsor (previously these were spend × 0.6 / × 0.4 fakes).
   const sparklines = useMemo(() => ({
     spend: chartData.map((d) => ({ v: d.spend, label: d.date })),
     conversions: chartData.map((d) => ({ v: d.conversions, label: d.date })),
-    metaSpend: chartData.map((d) => ({ v: d.spend * 0.6, label: d.date })),
-    googleSpend: chartData.map((d) => ({ v: d.spend * 0.4, label: d.date })),
+    metaSpend: chartData.map((d) => ({ v: d.metaSpend, label: d.date })),
+    googleSpend: chartData.map((d) => ({ v: d.googleSpend, label: d.date })),
   }), [chartData]);
 
   // Budget pacing
@@ -310,6 +320,17 @@ export default function MinistryOverview() {
   // KPI detail modal
   const [kpiDetail, setKpiDetail] = useState<KpiDetailData | null>(null);
   const closeKpiDetail = useCallback(() => setKpiDetail(null), []);
+
+  // Lead-type drilldown modal
+  const [drilldownLeadType, setDrilldownLeadType] = useState<string | null>(null);
+  const closeDrilldown = useCallback(() => setDrilldownLeadType(null), []);
+
+  // Per-campaign HubSpot reconciliation, used by the drilldown to cross-reference
+  // CRM-verified leads onto each lead-type bucket.
+  const campaignRecon = useMemo(
+    () => reconcileByCampaign(hubspotData ?? [], windsorData ?? []),
+    [hubspotData, windsorData],
+  );
 
   const currentLabel = chartData.length > 0
     ? `${chartData[0].date} - ${chartData[chartData.length - 1].date}`
@@ -607,9 +628,11 @@ export default function MinistryOverview() {
               const statusColors = CPL_STATUS_COLORS[status];
 
               return (
-                <div
+                <button
                   key={lt.id}
-                  className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-2"
+                  type="button"
+                  onClick={() => setDrilldownLeadType(lt.id)}
+                  className="text-left bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-2 hover:border-white/[0.14] hover:bg-white/[0.06] transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#C8A96E]/60"
                 >
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-white">{lt.label}</h3>
@@ -653,7 +676,7 @@ export default function MinistryOverview() {
                       </p>
                     )}
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
@@ -755,6 +778,153 @@ export default function MinistryOverview() {
       </div>
 
       <KpiDetailModal data={kpiDetail} onClose={closeKpiDetail} />
+
+      {drilldownLeadType && (() => {
+        const lt = LEAD_TYPES.find((x) => x.id === drilldownLeadType);
+        if (!lt) return null;
+        const bd = leadTypeBreakdown[lt.id];
+        const cpl = bd?.cpl ?? 0;
+        const status = getCplStatus(cpl, lt);
+        const statusColors = CPL_STATUS_COLORS[status];
+        const campaignsForType = campaignRecon.filter(
+          (c) => getLeadTypeFromCampaign(c.campaignName).id === lt.id,
+        );
+        const verifiedLeads = campaignsForType.reduce((s, c) => s + c.hubspotConfirmed, 0);
+        const hsCpl = verifiedLeads > 0 ? (bd?.spend ?? 0) / verifiedLeads : 0;
+        const enquiryRows = hubspotReconciliation.byEnquiryType.slice(0, 8);
+
+        return (
+          <div
+            className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto"
+            onClick={closeDrilldown}
+          >
+            <div
+              className="bg-[#12121A] border border-white/[0.08] rounded-2xl w-full max-w-4xl max-h-[85vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-5 sm:p-6 border-b border-white/[0.06] flex items-start justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <h2 className="text-lg font-bold text-white">{lt.label}</h2>
+                    <span className={cn("inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider", statusColors.bg, statusColors.text)}>
+                      {statusColors.label}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[#94A3B8]">
+                    Campaigns mapped to this lead type, cross-referenced with HubSpot verified leads.
+                  </p>
+                </div>
+                <button type="button" onClick={closeDrilldown} className="text-[#94A3B8] hover:text-white text-sm">✕</button>
+              </div>
+
+              <div className="p-5 sm:p-6 space-y-5">
+                {/* Headline KPIs */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Spend</p>
+                    <p className="text-base font-semibold">{formatCurrency(bd?.spend ?? 0, "GBP")}</p>
+                  </div>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Platform Leads</p>
+                    <p className="text-base font-semibold">{formatNumber(bd?.conversions ?? 0)}</p>
+                  </div>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">HS Verified</p>
+                    <p className="text-base font-semibold" style={{ color: ACCENT }}>{formatNumber(verifiedLeads)}</p>
+                  </div>
+                  <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
+                    <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">CPL (platform / verified)</p>
+                    <p className="text-base font-semibold">
+                      {bd?.cpl ? formatCurrency(bd.cpl, "GBP") : "—"}
+                      <span className="text-xs text-[#94A3B8]"> / </span>
+                      <span style={{ color: ACCENT }}>{hsCpl > 0 ? formatCurrency(hsCpl, "GBP") : "—"}</span>
+                    </p>
+                    {lt.targetCplMin !== null && lt.targetCplMax !== null && (
+                      <p className="text-[9px] text-[#94A3B8]/60 mt-0.5">
+                        Target: {formatCurrency(lt.targetCplMin, "GBP")}–{formatCurrency(lt.targetCplMax, "GBP")}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Campaigns table */}
+                <div>
+                  <h3 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-2">
+                    Campaigns in this bucket
+                  </h3>
+                  {campaignsForType.length === 0 ? (
+                    <p className="text-xs text-[#94A3B8]">No campaigns matched this lead type.</p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-[9px] text-[#94A3B8] uppercase tracking-wider border-b border-white/[0.06]">
+                            <th className="text-left p-2 font-semibold">Platform</th>
+                            <th className="text-left p-2 font-semibold">Campaign</th>
+                            <th className="text-right p-2 font-semibold">Spend</th>
+                            <th className="text-right p-2 font-semibold">Platform Claimed</th>
+                            <th className="text-right p-2 font-semibold" style={{ color: ACCENT }}>HS Verified</th>
+                            <th className="text-right p-2 font-semibold">CPL (verified)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {campaignsForType.map((c) => (
+                            <tr key={`${c.platform}-${c.campaignId ?? c.campaignName}`} className="border-b border-white/[0.03]">
+                              <td className="p-2 uppercase text-[10px] text-[#94A3B8]">{c.platform}</td>
+                              <td className="p-2 text-white">{c.campaignName}</td>
+                              <td className="p-2 text-right">{formatCurrency(c.spend, "GBP")}</td>
+                              <td className="p-2 text-right">{formatNumber(c.platformClaimed)}</td>
+                              <td className="p-2 text-right" style={{ color: ACCENT }}>{formatNumber(c.hubspotConfirmed)}</td>
+                              <td className="p-2 text-right">{c.confirmedCpl ? formatCurrency(c.confirmedCpl, "GBP") : "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* HubSpot enquiry_type mix across the period (sanity: are CRM tags aligned with ad spend?) */}
+                {enquiryRows.length > 0 && (
+                  <div>
+                    <h3 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-2">
+                      HubSpot enquiry_type mix (all leads, all lead types)
+                    </h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-[9px] text-[#94A3B8] uppercase tracking-wider border-b border-white/[0.06]">
+                            <th className="text-left p-2 font-semibold">Enquiry Type</th>
+                            <th className="text-right p-2 font-semibold">Total</th>
+                            <th className="text-right p-2 font-semibold" style={{ color: ACCENT }}>Verified</th>
+                            <th className="text-right p-2 font-semibold">Heuristic Paid</th>
+                            <th className="text-right p-2 font-semibold">Other</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {enquiryRows.map((r) => (
+                            <tr key={r.enquiryType} className="border-b border-white/[0.03]">
+                              <td className="p-2 text-white">{r.enquiryType}</td>
+                              <td className="p-2 text-right">{formatNumber(r.total)}</td>
+                              <td className="p-2 text-right" style={{ color: ACCENT }}>{formatNumber(r.verified)}</td>
+                              <td className="p-2 text-right">{formatNumber(r.heuristicPaid)}</td>
+                              <td className="p-2 text-right">{formatNumber(r.other)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[9px] text-[#94A3B8]/60 mt-1">
+                      Use this to sanity-check campaign → lead-type mapping. If a lead-type card shows few leads
+                      but the matching enquiry_type row is large, campaigns aren&apos;t named to pattern.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }

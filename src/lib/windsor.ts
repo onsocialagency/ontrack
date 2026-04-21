@@ -891,12 +891,24 @@ export interface HubSpotContact {
   latestSource: HubSpotAnalyticsSource | null;
   analyticsSourceData1: string | null;
   analyticsSourceData2: string | null;
+  latestSourceData1: string | null;
+  latestSourceData2: string | null;
   firstUrl: string | null;
+  lastUrl: string | null;
   firstReferrer: string | null;
+  lastReferrer: string | null;
   numConversionEvents: number;
   numAssociatedDeals: number;
   ownerId: string | null;
   message: string | null;
+  /** HubSpot-captured Google click ID (gclid). Presence proves the contact
+   *  came from a Google Ads click. */
+  googleClickId: string | null;
+  /** HubSpot-captured Facebook click ID (fbclid). Presence proves the
+   *  contact came from a Meta ad click. */
+  facebookClickId: string | null;
+  /** Ministry data-layer field — e.g. "Club / Off Peak", "Private Office". */
+  enquiryType: string | null;
 }
 
 const HUBSPOT_CONTACT_FIELDS = [
@@ -917,12 +929,19 @@ const HUBSPOT_CONTACT_FIELDS = [
   "contact_hs_latest_source",
   "contact_hs_analytics_source_data_1",
   "contact_hs_analytics_source_data_2",
+  "contact_hs_latest_source_data_1",
+  "contact_hs_latest_source_data_2",
   "contact_hs_analytics_first_url",
+  "contact_hs_analytics_last_url",
   "contact_hs_analytics_first_referrer",
+  "contact_hs_analytics_last_referrer",
   "contact_num_conversion_events",
   "contact_num_associated_deals",
   "contact_hubspot_owner_id",
   "contact_message",
+  "contact_hs_google_click_id",
+  "contact_hs_facebook_click_id",
+  "contact_enquiry_type",
 ];
 
 function normalizeHubSpotContact(raw: Record<string, unknown>): HubSpotContact {
@@ -948,12 +967,19 @@ function normalizeHubSpotContact(raw: Record<string, unknown>): HubSpotContact {
     latestSource: str(raw.contact_hs_latest_source),
     analyticsSourceData1: str(raw.contact_hs_analytics_source_data_1),
     analyticsSourceData2: str(raw.contact_hs_analytics_source_data_2),
+    latestSourceData1: str(raw.contact_hs_latest_source_data_1),
+    latestSourceData2: str(raw.contact_hs_latest_source_data_2),
     firstUrl: str(raw.contact_hs_analytics_first_url),
+    lastUrl: str(raw.contact_hs_analytics_last_url),
     firstReferrer: str(raw.contact_hs_analytics_first_referrer),
+    lastReferrer: str(raw.contact_hs_analytics_last_referrer),
     numConversionEvents: Number(raw.contact_num_conversion_events) || 0,
     numAssociatedDeals: Number(raw.contact_num_associated_deals) || 0,
     ownerId: str(raw.contact_hubspot_owner_id),
     message: str(raw.contact_message),
+    googleClickId: str(raw.contact_hs_google_click_id),
+    facebookClickId: str(raw.contact_hs_facebook_click_id),
+    enquiryType: str(raw.contact_enquiry_type),
   };
 }
 
