@@ -180,7 +180,7 @@ export function KpiCard({
         <span className={cn(
           "font-bold tracking-tight text-white tabular-nums transition-[filter] duration-300 whitespace-nowrap",
           // Responsive sizing so £89,450 fits a 6-col card at lg without ellipsis
-          isCompact ? "text-lg sm:text-xl" : "text-lg sm:text-xl lg:text-[22px] xl:text-2xl leading-none",
+          isCompact ? "text-lg sm:text-xl" : "text-xl sm:text-2xl lg:text-[26px] leading-none",
           loading && "blur-md opacity-70 animate-pulse select-none",
         )}>
           {value}

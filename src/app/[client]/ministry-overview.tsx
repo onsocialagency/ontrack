@@ -463,9 +463,11 @@ export default function MinistryOverview() {
         {/* ── SECTION 1: KPI Strip ──
             Team feedback: each card should state what it is, what the number
             means, and where it comes from. No bare numbers without a label.
-            Order matches client brief: Spend → Platform → HubSpot → CPL → Meta → Google.
-            Card 3 (HubSpot Confirmed) is the primary number — OnSocial green. */}
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
+            Order matches client brief: Spend → Platform → CPL → Meta → Google.
+            HubSpot Confirmed is surfaced in its own detailed module below
+            (Section 2 / CRM Reconciliation), not in the top strip — the six-
+            card layout was cramming titles and clipping values. */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
           <KpiCard loading={windsorLoading}
             title="Spend"
             value={formatCurrency(current.totalSpend, currency)}
@@ -501,29 +503,6 @@ export default function MinistryOverview() {
                 { name: "Google Ads", value: current.googleConversions, formatted: formatNumber(current.googleConversions), color: "#22C55E" },
               ],
               ACCENT,
-              (v) => formatNumber(v),
-            ))}
-          />
-          <KpiCard loading={windsorLoading}
-            attributionSource="crm-verified"
-            title="HubSpot Confirmed"
-            value={formatNumber(verifiedAdLeads)}
-            delta={deltas.verifiedLeads}
-            icon={<Users size={12} />}
-            subLabel="Source of truth"
-            tooltip={`Paid leads confirmed in HubSpot — cross-referenced to a live campaign via hsa_cam / utm_campaign / Facebook Lead Ads form. This is the source of truth for cost-per-lead. HubSpot total (all sources including organic/direct) for this period: ${formatNumber(hubspotTotal)}.`}
-            sparkline={sparklines.verifiedLeads}
-            accentColor="#22C55E"
-            onClick={() => setKpiDetail(buildDetail(
-              "HubSpot Confirmed", <Users size={18} />,
-              formatNumber(verifiedAdLeads),
-              "verifiedLeads",
-              [
-                { name: "Verified (campaign match)", value: verifiedAdLeads, formatted: formatNumber(verifiedAdLeads), color: "#22C55E" },
-                { name: "Heuristic paid (no join)", value: hubspotReconciliation.totalHeuristicPaid, formatted: formatNumber(hubspotReconciliation.totalHeuristicPaid), color: "#F59E0B" },
-                { name: "Other (organic / direct / email)", value: Math.max(hubspotTotal - verifiedAdLeads - hubspotReconciliation.totalHeuristicPaid, 0), formatted: formatNumber(Math.max(hubspotTotal - verifiedAdLeads - hubspotReconciliation.totalHeuristicPaid, 0)), color: "#64748B" },
-              ],
-              "#22C55E",
               (v) => formatNumber(v),
             ))}
           />
