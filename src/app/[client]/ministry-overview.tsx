@@ -28,9 +28,28 @@ import {
 } from "@/lib/ministry-config";
 import {
   DollarSign,
+  PoundSterling,
+  Euro,
+  JapaneseYen,
+  IndianRupee,
   Users,
   TrendingDown,
 } from "lucide-react";
+
+/**
+ * Map a client's currency code to the matching lucide icon. Prevents the
+ * SPEND tile from flashing a $ in GBP-denominated workspaces.
+ */
+function getCurrencyIcon(currency: string, size: number) {
+  switch (currency.toUpperCase()) {
+    case "GBP": return <PoundSterling size={size} />;
+    case "EUR": return <Euro size={size} />;
+    case "JPY": return <JapaneseYen size={size} />;
+    case "INR": return <IndianRupee size={size} />;
+    case "USD":
+    default:     return <DollarSign size={size} />;
+  }
+}
 import {
   ResponsiveContainer,
   AreaChart,
@@ -470,13 +489,13 @@ export default function MinistryOverview() {
             title="SPEND"
             value={formatCurrency(current.totalSpend, currency)}
             delta={deltas.spend}
-            icon={<DollarSign size={12} />}
+            icon={getCurrencyIcon(currency, 12)}
             subLabel="Across Meta and Google"
             tooltip="Combined ad spend across Meta (Facebook/Instagram) and Google Ads for the selected date range."
             sparkline={sparklines.spend}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
-              "Spend", <DollarSign size={18} />,
+              "Spend", getCurrencyIcon(currency, 18),
               formatCurrency(current.totalSpend, currency),
               "spend", platformBreakdown, ACCENT,
               (v) => formatCurrency(v, currency),

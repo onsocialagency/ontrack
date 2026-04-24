@@ -130,7 +130,7 @@ export function KpiCard({
             </span>
           )}
           <span className={cn(
-            "font-medium text-[#A8BBCC] tracking-wide truncate",
+            "font-medium text-[#A8BBCC] tracking-wide whitespace-normal break-words leading-tight",
             isCompact ? "text-[10px] sm:text-[11px]" : "text-[10px] sm:text-xs",
           )}>
             {title}
