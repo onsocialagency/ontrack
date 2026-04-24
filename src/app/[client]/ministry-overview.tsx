@@ -201,6 +201,9 @@ export default function MinistryOverview() {
   const { shortDate: fmtDate } = useLocale();
   const ctx = useClient();
   const client = ctx?.clientConfig;
+  // Currency is always pulled from client config — never hardcoded. Ministry
+  // is GBP but this template may get reused for a non-UK coworking client.
+  const currency = client?.currency ?? "GBP";
 
   // Budget + allocation targets read from client config (fallback to sensible defaults)
   const MONTHLY_BUDGET = client?.monthlyBudget ?? 5000;
@@ -398,8 +401,8 @@ export default function MinistryOverview() {
     : "Current period";
 
   const platformBreakdown = [
-    { name: "Meta Ads", value: current.metaSpend, formatted: formatCurrency(current.metaSpend, "GBP"), color: "#3B82F6" },
-    { name: "Google Ads", value: current.googleSpend, formatted: formatCurrency(current.googleSpend, "GBP"), color: "#22C55E" },
+    { name: "Meta Ads", value: current.metaSpend, formatted: formatCurrency(current.metaSpend, currency), color: "#3B82F6" },
+    { name: "Google Ads", value: current.googleSpend, formatted: formatCurrency(current.googleSpend, currency), color: "#22C55E" },
   ];
 
   const buildDetail = (
@@ -441,7 +444,7 @@ export default function MinistryOverview() {
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
           <KpiCard loading={windsorLoading}
             title="Total Spend"
-            value={formatCurrency(current.totalSpend, "GBP")}
+            value={formatCurrency(current.totalSpend, currency)}
             delta={deltas.spend}
             icon={<DollarSign size={12} />}
             tooltip="Combined Meta + Google spend for the selected period"
@@ -449,9 +452,9 @@ export default function MinistryOverview() {
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
               "Total Spend", <DollarSign size={18} />,
-              formatCurrency(current.totalSpend, "GBP"),
+              formatCurrency(current.totalSpend, currency),
               "spend", platformBreakdown, ACCENT,
-              (v) => formatCurrency(v, "GBP"),
+              (v) => formatCurrency(v, currency),
             ))}
           />
           <KpiCard loading={windsorLoading}
@@ -499,7 +502,7 @@ export default function MinistryOverview() {
           />
           <KpiCard loading={windsorLoading}
             title="Verified CPL"
-            value={verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, "GBP") : "—"}
+            value={verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, currency) : "—"}
             delta={deltas.verifiedCpl}
             invertDelta
             icon={<TrendingDown size={12} />}
@@ -508,14 +511,14 @@ export default function MinistryOverview() {
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
               "Verified CPL", <TrendingDown size={18} />,
-              verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, "GBP") : formatCurrency(current.blendedCpl, "GBP"),
+              verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, currency) : formatCurrency(current.blendedCpl, currency),
               "verifiedCpl", platformBreakdown, ACCENT,
-              (v) => formatCurrency(v, "GBP"),
+              (v) => formatCurrency(v, currency),
             ))}
           />
           <KpiCard loading={windsorLoading}
             title="Meta Spend"
-            value={formatCurrency(current.metaSpend, "GBP")}
+            value={formatCurrency(current.metaSpend, currency)}
             delta={deltas.meta}
             icon={<MetaIcon size={12} />}
             tooltip="Facebook / Instagram ad spend"
@@ -523,14 +526,14 @@ export default function MinistryOverview() {
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
               "Meta Spend", <MetaIcon size={18} />,
-              formatCurrency(current.metaSpend, "GBP"),
+              formatCurrency(current.metaSpend, currency),
               "spend", platformBreakdown, ACCENT,
-              (v) => formatCurrency(v, "GBP"),
+              (v) => formatCurrency(v, currency),
             ))}
           />
           <KpiCard loading={windsorLoading}
             title="Google Spend"
-            value={formatCurrency(current.googleSpend, "GBP")}
+            value={formatCurrency(current.googleSpend, currency)}
             delta={deltas.google}
             icon={<GoogleIcon size={12} />}
             tooltip="Google Ads spend"
@@ -538,9 +541,9 @@ export default function MinistryOverview() {
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
               "Google Spend", <GoogleIcon size={18} />,
-              formatCurrency(current.googleSpend, "GBP"),
+              formatCurrency(current.googleSpend, currency),
               "spend", platformBreakdown, ACCENT,
-              (v) => formatCurrency(v, "GBP"),
+              (v) => formatCurrency(v, currency),
             ))}
           />
         </div>
@@ -585,7 +588,7 @@ export default function MinistryOverview() {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-[#94A3B8] font-medium">
-                  {formatCurrency(current.totalSpend, "GBP")} of {formatCurrency(MONTHLY_BUDGET, "GBP")}
+                  {formatCurrency(current.totalSpend, currency)} of {formatCurrency(MONTHLY_BUDGET, currency)}
                 </span>
                 <span className="font-semibold" style={{ color: ACCENT }}>
                   {pacingPct.toFixed(0)}%
@@ -603,15 +606,15 @@ export default function MinistryOverview() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
               <div>
                 <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Current Spend</p>
-                <p className="text-sm font-semibold">{formatCurrency(current.totalSpend, "GBP")}</p>
+                <p className="text-sm font-semibold">{formatCurrency(current.totalSpend, currency)}</p>
               </div>
               <div>
                 <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Projected EOM</p>
-                <p className="text-sm font-semibold">{formatCurrency(projectedEOM, "GBP")}</p>
+                <p className="text-sm font-semibold">{formatCurrency(projectedEOM, currency)}</p>
               </div>
               <div>
                 <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Daily Avg</p>
-                <p className="text-sm font-semibold">{formatCurrency(dailyAvgSpend, "GBP")}</p>
+                <p className="text-sm font-semibold">{formatCurrency(dailyAvgSpend, currency)}</p>
               </div>
               <div>
                 <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Days Remaining</p>
@@ -643,7 +646,7 @@ export default function MinistryOverview() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-[#94A3B8]">{metaPct.toFixed(0)}% actual</span>
-                  <span className="text-xs font-semibold">{formatCurrency(current.metaSpend, "GBP")}</span>
+                  <span className="text-xs font-semibold">{formatCurrency(current.metaSpend, currency)}</span>
                 </div>
               </div>
               <div className="relative h-2.5 rounded-full bg-white/[0.06] overflow-hidden">
@@ -660,7 +663,7 @@ export default function MinistryOverview() {
               <div className="flex items-center gap-4 mt-1">
                 <p className="text-[9px] text-[#94A3B8]/60">Target: {META_TARGET_PCT}%</p>
                 <p className="text-[9px] text-[#94A3B8]/60">Conv: {formatNumber(current.metaConversions)}</p>
-                <p className="text-[9px] text-[#94A3B8]/60">CPL: {current.metaConversions > 0 ? formatCurrency(current.metaSpend / current.metaConversions, "GBP") : "—"}</p>
+                <p className="text-[9px] text-[#94A3B8]/60">CPL: {current.metaConversions > 0 ? formatCurrency(current.metaSpend / current.metaConversions, currency) : "—"}</p>
               </div>
             </div>
 
@@ -673,7 +676,7 @@ export default function MinistryOverview() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-[#94A3B8]">{googlePct.toFixed(0)}% actual</span>
-                  <span className="text-xs font-semibold">{formatCurrency(current.googleSpend, "GBP")}</span>
+                  <span className="text-xs font-semibold">{formatCurrency(current.googleSpend, currency)}</span>
                 </div>
               </div>
               <div className="relative h-2.5 rounded-full bg-white/[0.06] overflow-hidden">
@@ -690,7 +693,7 @@ export default function MinistryOverview() {
               <div className="flex items-center gap-4 mt-1">
                 <p className="text-[9px] text-[#94A3B8]/60">Target: {GOOGLE_TARGET_PCT}%</p>
                 <p className="text-[9px] text-[#94A3B8]/60">Conv: {formatNumber(current.googleConversions)}</p>
-                <p className="text-[9px] text-[#94A3B8]/60">CPL: {current.googleConversions > 0 ? formatCurrency(current.googleSpend / current.googleConversions, "GBP") : "—"}</p>
+                <p className="text-[9px] text-[#94A3B8]/60">CPL: {current.googleConversions > 0 ? formatCurrency(current.googleSpend / current.googleConversions, currency) : "—"}</p>
               </div>
             </div>
           </div>
@@ -744,13 +747,13 @@ export default function MinistryOverview() {
                     {convCount > 0 && (
                       <div className="flex items-baseline gap-2">
                         <span className="text-sm font-semibold" style={{ color: ACCENT }}>
-                          CPL: {formatCurrency(cpl, "GBP")}
+                          CPL: {formatCurrency(cpl, currency)}
                         </span>
                       </div>
                     )}
                     {lt.targetCplMin !== null && lt.targetCplMax !== null && (
                       <p className="text-[10px] text-[#94A3B8]">
-                        Target: {formatCurrency(lt.targetCplMin, "GBP")}–{formatCurrency(lt.targetCplMax, "GBP")}
+                        Target: {formatCurrency(lt.targetCplMin, currency)}–{formatCurrency(lt.targetCplMax, currency)}
                       </p>
                     )}
                     {bd?.campaigns && bd.campaigns.length > 0 && (
@@ -816,7 +819,7 @@ export default function MinistryOverview() {
                   labelStyle={{ color: "#94A3B8" }}
                   formatter={(val: unknown, name: unknown) => [
                     name === "spend"
-                      ? formatCurrency(Number(val ?? 0), "GBP")
+                      ? formatCurrency(Number(val ?? 0), currency)
                       : formatNumber(Number(val ?? 0)),
                     name === "spend" ? "Spend" : "Conversions (platform reported)",
                   ]}
@@ -905,7 +908,7 @@ export default function MinistryOverview() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
                     <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Spend</p>
-                    <p className="text-base font-semibold">{formatCurrency(bd?.spend ?? 0, "GBP")}</p>
+                    <p className="text-base font-semibold">{formatCurrency(bd?.spend ?? 0, currency)}</p>
                   </div>
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
                     <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Platform Leads</p>
@@ -918,13 +921,13 @@ export default function MinistryOverview() {
                   <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-3">
                     <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">CPL (platform / verified)</p>
                     <p className="text-base font-semibold">
-                      {bd?.cpl ? formatCurrency(bd.cpl, "GBP") : "—"}
+                      {bd?.cpl ? formatCurrency(bd.cpl, currency) : "—"}
                       <span className="text-xs text-[#94A3B8]"> / </span>
-                      <span style={{ color: ACCENT }}>{hsCpl > 0 ? formatCurrency(hsCpl, "GBP") : "—"}</span>
+                      <span style={{ color: ACCENT }}>{hsCpl > 0 ? formatCurrency(hsCpl, currency) : "—"}</span>
                     </p>
                     {lt.targetCplMin !== null && lt.targetCplMax !== null && (
                       <p className="text-[9px] text-[#94A3B8]/60 mt-0.5">
-                        Target: {formatCurrency(lt.targetCplMin, "GBP")}–{formatCurrency(lt.targetCplMax, "GBP")}
+                        Target: {formatCurrency(lt.targetCplMin, currency)}–{formatCurrency(lt.targetCplMax, currency)}
                       </p>
                     )}
                   </div>
@@ -955,10 +958,10 @@ export default function MinistryOverview() {
                             <tr key={`${c.platform}-${c.campaignId ?? c.campaignName}`} className="border-b border-white/[0.03]">
                               <td className="p-2 uppercase text-[10px] text-[#94A3B8]">{c.platform}</td>
                               <td className="p-2 text-white">{c.campaignName}</td>
-                              <td className="p-2 text-right">{formatCurrency(c.spend, "GBP")}</td>
+                              <td className="p-2 text-right">{formatCurrency(c.spend, currency)}</td>
                               <td className="p-2 text-right">{formatNumber(c.platformClaimed)}</td>
                               <td className="p-2 text-right" style={{ color: ACCENT }}>{formatNumber(c.hubspotConfirmed)}</td>
-                              <td className="p-2 text-right">{c.confirmedCpl ? formatCurrency(c.confirmedCpl, "GBP") : "—"}</td>
+                              <td className="p-2 text-right">{c.confirmedCpl ? formatCurrency(c.confirmedCpl, currency) : "—"}</td>
                             </tr>
                           ))}
                         </tbody>
