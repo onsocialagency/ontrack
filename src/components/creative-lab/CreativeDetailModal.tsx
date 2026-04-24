@@ -5,6 +5,7 @@ import { X, ExternalLink, Clock, Play, Image, Layers, Type, Sparkles } from "luc
 import { cn } from "@/lib/utils";
 import { formatCurrency, formatROAS } from "@/lib/utils";
 import type { LiveCreative } from "@/lib/creativeAggregator";
+import type { ClientType } from "@/lib/types";
 
 const FORMAT_ICONS: Record<string, React.ReactNode> = {
   VID: <Play size={20} />,
@@ -23,10 +24,12 @@ const FORMAT_COLORS: Record<string, string> = {
 interface CreativeDetailModalProps {
   creative: LiveCreative;
   currency: string;
+  clientType?: ClientType;
   onClose: () => void;
 }
 
-export function CreativeDetailModal({ creative, currency, onClose }: CreativeDetailModalProps) {
+export function CreativeDetailModal({ creative, currency, clientType = "ecommerce", onClose }: CreativeDetailModalProps) {
+  const isLeadGen = clientType === "lead_gen";
   // Close on Escape
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -85,14 +88,24 @@ export function CreativeDetailModal({ creative, currency, onClose }: CreativeDet
             <div>
               <p className="text-[10px] text-[#94A3B8] uppercase tracking-wider font-semibold mb-2">Performance Metrics</p>
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  { label: "Ad Spend", value: formatCurrency(creative.spend, currency) },
-                  { label: "ROAS", value: scoreResult.isROASHidden ? "--" : formatROAS(creative.roas), note: scoreResult.isROASHidden ? "Hidden (prospecting)" : undefined },
-                  { label: "CPA", value: creative.conversions > 0 ? formatCurrency(creative.spend / creative.conversions, currency) : "--" },
-                  { label: "CPC", value: creative.clicks > 0 ? formatCurrency(creative.spend / creative.clicks, currency) : "--" },
-                  { label: "CTR", value: `${creative.ctr.toFixed(2)}%` },
-                  { label: "Impressions", value: creative.impressions.toLocaleString() },
-                ].map((m) => (
+                {(isLeadGen
+                  ? [
+                      { label: "Ad Spend", value: formatCurrency(creative.spend, currency) },
+                      { label: "Leads", value: creative.conversions.toLocaleString() },
+                      { label: "CPL", value: creative.conversions > 0 ? formatCurrency(creative.spend / creative.conversions, currency) : "--" },
+                      { label: "CPC", value: creative.clicks > 0 ? formatCurrency(creative.spend / creative.clicks, currency) : "--" },
+                      { label: "CTR", value: `${creative.ctr.toFixed(2)}%` },
+                      { label: "Impressions", value: creative.impressions.toLocaleString() },
+                    ]
+                  : [
+                      { label: "Ad Spend", value: formatCurrency(creative.spend, currency) },
+                      { label: "ROAS", value: scoreResult.isROASHidden ? "--" : formatROAS(creative.roas), note: scoreResult.isROASHidden ? "Hidden (prospecting)" : undefined },
+                      { label: "CPA", value: creative.conversions > 0 ? formatCurrency(creative.spend / creative.conversions, currency) : "--" },
+                      { label: "CPC", value: creative.clicks > 0 ? formatCurrency(creative.spend / creative.clicks, currency) : "--" },
+                      { label: "CTR", value: `${creative.ctr.toFixed(2)}%` },
+                      { label: "Impressions", value: creative.impressions.toLocaleString() },
+                    ]
+                ).map((m) => (
                   <div key={m.label} className="p-3 rounded-xl bg-white/[0.04] border border-white/[0.06]">
                     <p className="text-[10px] text-[#94A3B8] uppercase tracking-wider">{m.label}</p>
                     <p className="text-sm font-semibold text-white mt-0.5">{m.value}</p>

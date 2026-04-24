@@ -299,6 +299,7 @@ export default function CreativeLabPage() {
                     key={creative.id}
                     creative={creative}
                     currency={currency}
+                    clientType={client?.type}
                     onClick={() => setSelectedCreative(creative)}
                   />
                 ))}
@@ -365,6 +366,7 @@ export default function CreativeLabPage() {
         <CreativeDetailModal
           creative={selectedCreative}
           currency={currency}
+          clientType={client?.type}
           onClose={closeModal}
         />
       )}

@@ -43,10 +43,12 @@ const FATIGUE_BADGES: Record<string, { label: string; color: string }> = {
 interface CreativeCardProps {
   creative: LiveCreative;
   currency: string;
+  clientType?: import("@/lib/types").ClientType;
   onClick: () => void;
 }
 
-export function CreativeCard({ creative, currency, onClick }: CreativeCardProps) {
+export function CreativeCard({ creative, currency, clientType = "ecommerce", onClick }: CreativeCardProps) {
+  const isLeadGen = clientType === "lead_gen";
   const { scoreResult, channelRole } = creative;
   const roleInfo = CHANNEL_ROLE_LABELS[channelRole] || CHANNEL_ROLE_LABELS.unknown;
   const fatigueInfo = FATIGUE_BADGES[scoreResult.fatigueLevel];
@@ -167,7 +169,12 @@ export function CreativeCard({ creative, currency, onClick }: CreativeCardProps)
             </>
           ) : null}
           <MetricRow label="CTR" value={`${creative.ctr.toFixed(2)}%`} />
-          {!scoreResult.isROASHidden ? (
+          {isLeadGen ? (
+            <MetricRow
+              label="CPL"
+              value={creative.conversions > 0 ? formatCurrency(creative.spend / creative.conversions, currency) : "--"}
+            />
+          ) : !scoreResult.isROASHidden ? (
             <MetricRow label="ROAS" value={formatROAS(creative.roas)} />
           ) : (
             <MetricRow label="ROAS" value="--" muted note="Prospecting" />

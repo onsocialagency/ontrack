@@ -83,7 +83,12 @@ interface WeightSet {
   completion?: number;
 }
 
-function getWeights(platform: CreativePlatform, format: string, channelRole: ChannelRole): WeightSet {
+function getWeights(
+  platform: CreativePlatform,
+  format: string,
+  channelRole: ChannelRole,
+  clientType: ClientType = "ecommerce",
+): WeightSet {
   // Google Search — same regardless of channel role
   if (platform === "google" || format === "SEARCH") {
     return { ctr: 0.30, cvr: 0.25, qualityScore: 0.30, cpaVsTarget: 0.15 };
@@ -95,6 +100,26 @@ function getWeights(platform: CreativePlatform, format: string, channelRole: Cha
       return { hookRate: 0.35, holdRate: 0.20, ctr: 0.20, cvr: 0.10, completion: 0.15 };
     }
     return { hookRate: 0.30, holdRate: 0.20, ctr: 0.20, cvr: 0.15, completion: 0.15 };
+  }
+
+  // Lead-gen: ROAS is meaningless. Score on CPA vs target instead.
+  // Prospecting still hides all bottom-of-funnel conversion signals.
+  if (clientType === "lead_gen") {
+    if (format === "STA" || format === "CAR") {
+      if (channelRole === "prospecting") return { ctr: 0.50, cvr: 0.50 };
+      return { ctr: 0.35, cvr: 0.30, cpaVsTarget: 0.35 };
+    }
+    // Meta Video, lead_gen
+    switch (channelRole) {
+      case "prospecting":
+        return { hookRate: 0.35, holdRate: 0.25, ctr: 0.25, cvr: 0.15 };
+      case "conversion":
+        return { hookRate: 0.15, holdRate: 0.10, ctr: 0.20, cvr: 0.25, cpaVsTarget: 0.30 };
+      case "retargeting":
+      case "brand":
+      default:
+        return { hookRate: 0.25, holdRate: 0.20, ctr: 0.20, cvr: 0.20, cpaVsTarget: 0.15 };
+    }
   }
 
   // Meta Static — no video metrics
@@ -160,11 +185,12 @@ function computeFatigue(input: ScoreInput): { isFatigued: boolean; fatigueLevel:
 /* ── Main scoring function ── */
 
 export function scoreCreative(input: ScoreInput): ScoreResult {
-  const { platform, format, channelRole, spend, impressions } = input;
+  const { platform, format, channelRole, spend, impressions, clientType } = input;
 
   const isProspecting = channelRole === "prospecting";
   const isVideo = format === "VID";
   const isGoogle = platform === "google" || format === "SEARCH";
+  const isLeadGen = clientType === "lead_gen";
 
   // ── Confidence thresholds ──
   const minSpend = isGoogle
@@ -195,8 +221,10 @@ export function scoreCreative(input: ScoreInput): ScoreResult {
   const videoMetricsAvailable = isVideo && impressions >= minImpressions;
 
   // ── Get weight set ──
-  const weights = getWeights(platform, format, channelRole);
-  const isROASHidden = isProspecting || !weights.roas;
+  const weights = getWeights(platform, format, channelRole, clientType);
+  // ROAS is hidden for prospecting, lead_gen (where it's meaningless), or any
+  // weight set that doesn't include it.
+  const isROASHidden = isProspecting || isLeadGen || !weights.roas;
 
   // ── Build breakdown ──
   const breakdown: ScoreBreakdownItem[] = [];
@@ -245,11 +273,14 @@ export function scoreCreative(input: ScoreInput): ScoreResult {
     scoredMetrics.push("CVR");
   }
 
-  // ROAS (excluded from prospecting)
-  if (weights.roas && !isProspecting) {
+  // ROAS (excluded from prospecting; always excluded for lead_gen)
+  if (weights.roas && !isProspecting && !isLeadGen) {
     const norm = normalise(input.roas, socialRanges.roas.min, socialRanges.roas.max);
     breakdown.push({ metric: "ROAS", rawValue: input.roas, normalisedValue: norm, weight: weights.roas, weightedScore: norm * weights.roas });
     scoredMetrics.push("ROAS");
+  } else if (isLeadGen) {
+    // For lead_gen we explicitly tell the user ROAS isn't the right lens.
+    notScoredMetrics.push("ROAS — lead-gen creatives are scored on CPL and lead volume, not revenue");
   } else if (isProspecting) {
     notScoredMetrics.push("ROAS — prospecting ads are not expected to close purchases directly");
   }
@@ -261,13 +292,22 @@ export function scoreCreative(input: ScoreInput): ScoreResult {
     scoredMetrics.push("quality score");
   }
 
-  // CPA vs Target (Google only)
+  // CPA vs Target (Google always, lead_gen when a target is known).
+  // For lead_gen we label this "CPL vs Target" since in a lead-gen context
+  // acquisition cost per lead is the right unit.
   if (weights.cpaVsTarget && input.targetCPA && input.cpa) {
     const ratio = input.cpa / input.targetCPA;
     // 0.5x target = 100 (great), 2x target = 0 (bad)
     const norm = normalise(ratio, 2, 0.5);
-    breakdown.push({ metric: "CPA vs Target", rawValue: ratio, normalisedValue: norm, weight: weights.cpaVsTarget, weightedScore: norm * weights.cpaVsTarget });
-    scoredMetrics.push("CPA vs target");
+    const metricLabel = isLeadGen ? "CPL vs Target" : "CPA vs Target";
+    breakdown.push({ metric: metricLabel, rawValue: ratio, normalisedValue: norm, weight: weights.cpaVsTarget, weightedScore: norm * weights.cpaVsTarget });
+    scoredMetrics.push(isLeadGen ? "CPL vs target" : "CPA vs target");
+  } else if (weights.cpaVsTarget && isLeadGen) {
+    notScoredMetrics.push(
+      input.cpa
+        ? "CPL vs target — no target CPL set for this client"
+        : "CPL vs target — no conversions yet",
+    );
   }
 
   // Completion rate (TikTok)
