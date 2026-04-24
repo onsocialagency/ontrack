@@ -390,7 +390,7 @@ export default function CrmReconciliationPage() {
                   const count = leadTypeHubSpotCounts.get(key) ?? 0;
                   // No per-lead-type spend available from HubSpot alone — hide CPL vs target when count is 0
                   const hasData = count > 0;
-                  const status = hasData ? getCplStatus(0, leadType) : "no_target";
+                  const status = getCplStatus(0, leadType, hasData);
                   const statusStyle = CPL_STATUS_COLORS[status];
                   const targetLabel =
                     leadType.targetCplMin !== null && leadType.targetCplMax !== null

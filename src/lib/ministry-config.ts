@@ -227,28 +227,42 @@ export function filterValidConversions(rows: Record<string, unknown>[]): Record<
 
 /* ── CPL Status ── */
 
-export type CplStatus = "green" | "amber" | "red" | "no_target";
+export type CplStatus = "ahead" | "on_target" | "above" | "no_target" | "no_data";
 
 /**
- * Determine CPL status against target range.
- * Green = within range
- * Amber = above min but within 20% of max
- * Red = above max
+ * CPL status against the target range, 3-state:
+ *
+ *   CPL ≤ targetMin          → "ahead"     green   — cheaper than target = good
+ *   targetMin < CPL ≤ Max   → "on_target" amber   — inside expected range
+ *   CPL > targetMax          → "above"     red     — more expensive than target = bad
+ *
+ * Teams previously saw everything below the max as "ON TARGET", which is
+ * misleading when a Private Office lead comes in at £12 against a £40–£80
+ * range — that's dramatically ahead of target, not on it.
+ *
+ * Passing `hasData: false` (no leads or no spend) returns "no_data" so the
+ * card renders a grey neutral badge instead of a misleading green one.
  */
-export function getCplStatus(cpl: number, leadType: LeadType): CplStatus {
+export function getCplStatus(
+  cpl: number,
+  leadType: LeadType,
+  hasData = true,
+): CplStatus {
+  if (!hasData) return "no_data";
   if (leadType.targetCplMin === null || leadType.targetCplMax === null) {
     return "no_target";
   }
-  if (cpl <= leadType.targetCplMax) return "green";
-  if (cpl <= leadType.targetCplMax * 1.2) return "amber";
-  return "red";
+  if (cpl <= leadType.targetCplMin) return "ahead";
+  if (cpl <= leadType.targetCplMax) return "on_target";
+  return "above";
 }
 
 export const CPL_STATUS_COLORS: Record<CplStatus, { bg: string; text: string; label: string }> = {
-  green: { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "On Target" },
-  amber: { bg: "bg-amber-500/20", text: "text-amber-400", label: "Near Limit" },
-  red: { bg: "bg-red-500/20", text: "text-red-400", label: "Over Target" },
+  ahead: { bg: "bg-emerald-500/20", text: "text-emerald-400", label: "Ahead of Target" },
+  on_target: { bg: "bg-amber-500/20", text: "text-amber-400", label: "On Target" },
+  above: { bg: "bg-red-500/20", text: "text-red-400", label: "Above Target" },
   no_target: { bg: "bg-zinc-500/20", text: "text-zinc-400", label: "No Target" },
+  no_data: { bg: "bg-zinc-500/20", text: "text-zinc-400", label: "No Data" },
 };
 
 /* ── Brand ── */

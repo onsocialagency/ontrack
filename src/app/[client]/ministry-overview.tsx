@@ -710,7 +710,11 @@ export default function MinistryOverview() {
               const bd = leadTypeBreakdown[lt.id];
               const convCount = bd?.conversions ?? 0;
               const cpl = bd?.cpl ?? 0;
-              const status = getCplStatus(cpl, lt);
+              // hasData gates the badge out of green when there are no leads
+              // or no spend — prevents "Ahead of Target" appearing for an
+              // empty bucket just because £0 ≤ targetMin.
+              const hasData = convCount > 0 && (bd?.spend ?? 0) > 0;
+              const status = getCplStatus(cpl, lt, hasData);
               const statusColors = CPL_STATUS_COLORS[status];
 
               return (
@@ -870,7 +874,8 @@ export default function MinistryOverview() {
         if (!lt) return null;
         const bd = leadTypeBreakdown[lt.id];
         const cpl = bd?.cpl ?? 0;
-        const status = getCplStatus(cpl, lt);
+        const hasData = (bd?.conversions ?? 0) > 0 && (bd?.spend ?? 0) > 0;
+        const status = getCplStatus(cpl, lt, hasData);
         const statusColors = CPL_STATUS_COLORS[status];
         const campaignsForType = campaignRecon.filter(
           (c) => getLeadTypeFromCampaign(c.campaignName).id === lt.id,
