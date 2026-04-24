@@ -113,6 +113,75 @@ export function extractFormIdFromEvent(eventName: string | null | undefined): st
   return null;
 }
 
+/**
+ * Ministry enquiry type fallback chain. `contact.enquiryType` is the
+ * primary source (GTM data-layer push) but coverage is imperfect — we've
+ * historically seen ~25% of contacts land with no value. Before giving up
+ * and calling them "(untagged)" we try:
+ *
+ *   1. Explicit  — `contact.enquiryType`
+ *   2. Event     — conversion event name ("Day Pass", "Private Office", …)
+ *   3. URL path  — `first_url` path segment ("/private-office", "/day-pass")
+ *   4. UTM       — `utm_campaign` via ministry-config pattern matcher
+ *
+ * The `source` flag tells the UI where the value came from so we can surface
+ * a data-quality banner when too much of the mix is inferred rather than
+ * explicit.
+ */
+const ENQUIRY_LABEL_MAP: { needle: string; label: string }[] = [
+  { needle: "private office", label: "Private Office" },
+  { needle: "privateoffice", label: "Private Office" },
+  { needle: "private-office", label: "Private Office" },
+  { needle: "dedicated desk", label: "Dedicated Desk" },
+  { needle: "dedicateddesk", label: "Dedicated Desk" },
+  { needle: "dedicated-desk", label: "Dedicated Desk" },
+  { needle: "hot desk", label: "Hot Desk" },
+  { needle: "hotdesk", label: "Hot Desk" },
+  { needle: "hot-desk", label: "Hot Desk" },
+  { needle: "meeting room", label: "Meeting Room" },
+  { needle: "meetingroom", label: "Meeting Room" },
+  { needle: "meeting-room", label: "Meeting Room" },
+  { needle: "day pass", label: "Day Pass" },
+  { needle: "daypass", label: "Day Pass" },
+  { needle: "day-pass", label: "Day Pass" },
+  { needle: "club", label: "Club" },
+];
+
+export type EnquiryTagSource = "explicit" | "event" | "url" | "utm" | "untagged";
+
+export function deriveEnquiryType(contact: HubSpotContact): {
+  value: string;
+  source: EnquiryTagSource;
+} {
+  if (contact.enquiryType && contact.enquiryType.trim()) {
+    return { value: contact.enquiryType.trim(), source: "explicit" };
+  }
+  const event = (contact.recentConversionEventName ?? contact.firstConversionEventName ?? "").toLowerCase();
+  for (const { needle, label } of ENQUIRY_LABEL_MAP) {
+    if (event.includes(needle)) return { value: label, source: "event" };
+  }
+  if (contact.firstUrl) {
+    try {
+      const path = new URL(contact.firstUrl).pathname.toLowerCase();
+      for (const { needle, label } of ENQUIRY_LABEL_MAP) {
+        if (path.includes(needle.replace(/\s/g, "-")) || path.includes(needle.replace(/\s/g, ""))) {
+          return { value: label, source: "url" };
+        }
+      }
+    } catch {
+      // bad URL — fall through
+    }
+  }
+  const utmCampaign = extractMetaCampaignFromFirstUrl(contact.firstUrl).campaignName;
+  if (utmCampaign) {
+    const lower = utmCampaign.toLowerCase();
+    for (const { needle, label } of ENQUIRY_LABEL_MAP) {
+      if (lower.includes(needle)) return { value: label, source: "utm" };
+    }
+  }
+  return { value: "(untagged)", source: "untagged" };
+}
+
 /* ── Reconciliation ──────────────────────────────────────────────── */
 
 export interface ChannelReconciliation {
@@ -243,6 +312,13 @@ export interface ReconciliationResult {
   byDate: VerifiedByDateBreakdown[];
   /** Contacts with analyticsSource = null/OFFLINE/OTHER — can't be attributed. */
   unattributed: HubSpotContact[];
+  /** How each contact's enquiry type was resolved — explicit data-layer value
+   *  vs. inferred from event name / URL / UTM. A high `untagged` ratio means
+   *  the GTM data-layer push is broken on some subset of forms. */
+  enquiryTagSources: Record<EnquiryTagSource, number>;
+  /** Share of contacts where the enquiry type could not be derived at all
+   *  (0–1). Surface a banner when this crosses ~0.20. */
+  untaggedRate: number;
 }
 
 /**
@@ -266,6 +342,9 @@ export function reconcileLeads(
     EnquiryForm: 0, DayPass: 0, FacebookLead: 0, Unknown: 0,
   };
   const unattributed: HubSpotContact[] = [];
+  const tagSourceCounts: Record<EnquiryTagSource, number> = {
+    explicit: 0, event: 0, url: 0, utm: 0, untagged: 0,
+  };
   let totalAdVerified = 0;
   let totalHeuristicPaid = 0;
 
@@ -304,13 +383,14 @@ export function reconcileLeads(
       totalHeuristicPaid += 1;
     }
 
-    const et = c.enquiryType && c.enquiryType.trim() ? c.enquiryType.trim() : "(untagged)";
-    const agg = enquiryCounts.get(et) ?? { total: 0, verified: 0, heuristicPaid: 0, other: 0 };
+    const derived = deriveEnquiryType(c);
+    tagSourceCounts[derived.source] += 1;
+    const agg = enquiryCounts.get(derived.value) ?? { total: 0, verified: 0, heuristicPaid: 0, other: 0 };
     agg.total += 1;
     if (status === "verified") agg.verified += 1;
     else if (status === "heuristic_paid") agg.heuristicPaid += 1;
     else agg.other += 1;
-    enquiryCounts.set(et, agg);
+    enquiryCounts.set(derived.value, agg);
 
     const formId = extractFormIdFromEvent(
       c.recentConversionEventName ?? c.firstConversionEventName,
@@ -379,6 +459,8 @@ export function reconcileLeads(
     byForm,
     byDate,
     unattributed,
+    enquiryTagSources: tagSourceCounts,
+    untaggedRate: contacts.length > 0 ? tagSourceCounts.untagged / contacts.length : 0,
   };
 }
 

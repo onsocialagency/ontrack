@@ -440,6 +440,26 @@ export default function MinistryOverview() {
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
 
         <DataBlur isBlurred={dataSource !== "windsor" && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
+        {/* Untagged-enquiry data-quality banner. Fires when > 20% of HubSpot
+            contacts land with no derivable enquiry type (explicit value,
+            event name, URL path, or UTM campaign all failed). Usually means
+            the GTM data-layer push is broken on some subset of forms. */}
+        {hubspotTotal > 0 && hubspotReconciliation.untaggedRate > 0.2 && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-start gap-3">
+            <div className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-500/20 flex items-center justify-center mt-0.5">
+              <span className="text-amber-400 text-sm font-bold">!</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-amber-300">
+                {Math.round(hubspotReconciliation.untaggedRate * 100)}% of leads have no enquiry type
+              </p>
+              <p className="text-[11px] text-amber-300/70 mt-0.5 leading-relaxed">
+                {formatNumber(hubspotReconciliation.enquiryTagSources.untagged)} of {formatNumber(hubspotTotal)} contacts couldn&apos;t be tagged from the data layer, event name, landing URL, or UTM campaign. Lead-type breakdowns will under-count these. Check the GTM data-layer push on forms where the enquiry_type field is missing.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* ── SECTION 1: KPI Strip ──
             Team feedback: each card should state what it is, what the number
             means, and where it comes from. No bare numbers without a label.
