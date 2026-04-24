@@ -33,8 +33,6 @@ import {
 import { getCurrencyIcon } from "@/components/ui/currency-icon";
 import {
   ResponsiveContainer,
-  AreaChart,
-  Area,
   ComposedChart,
   Bar,
   Line,
