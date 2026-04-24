@@ -35,9 +35,9 @@ import {
   ChevronDown,
   Download,
   Circle,
-  DollarSign,
   Info,
 } from "lucide-react";
+import { getCurrencyIcon } from "@/components/ui/currency-icon";
 import {
   ResponsiveContainer,
   PieChart,
@@ -1039,7 +1039,7 @@ export default function AttributionPage() {
                   title="Total Spend"
                   value={formatCurrency(totalSpend, client.currency)}
                   delta={0}
-                  icon={<DollarSign size={12} />}
+                  icon={getCurrencyIcon(client.currency, 12)}
                   tooltip="Meta + Google spend for the selected period"
                   sparkline={sparklines?.spend}
                   accentColor="#FF6A41"

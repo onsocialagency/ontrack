@@ -13,7 +13,8 @@ import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
 import { reconcileByCampaign } from "@/lib/leadReconciliation";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { MetricCell } from "@/components/ui/metric-cell";
-import { Target, DollarSign, TrendingUp, Zap } from "lucide-react";
+import { Target, TrendingUp, Zap } from "lucide-react";
+import { getCurrencyIcon } from "@/components/ui/currency-icon";
 
 /* ── Page ──
  *
@@ -138,9 +139,9 @@ export default function LeadGenPage() {
             value={formatCurrency(cpql, client.currency)}
             delta={-4.2}
             invertDelta
-            icon={<DollarSign size={16} />}
+            icon={getCurrencyIcon(client.currency, 16)}
             onClick={() => setKpiDetail({
-              title: "Cost Per Qualified Lead", icon: <DollarSign size={18} />, currentValue: formatCurrency(cpql, client.currency),
+              title: "Cost Per Qualified Lead", icon: getCurrencyIcon(client.currency, 18), currentValue: formatCurrency(cpql, client.currency),
               currentLabel: "Current period", dailyData: [], breakdown: [],
               accentColor: "#3B82F6", formatValue: (v) => formatCurrency(v, client.currency),
             })}

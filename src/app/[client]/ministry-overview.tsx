@@ -27,29 +27,10 @@ import {
   type LeadTypeBreakdown,
 } from "@/lib/ministry-config";
 import {
-  DollarSign,
-  PoundSterling,
-  Euro,
-  JapaneseYen,
-  IndianRupee,
   Users,
   TrendingDown,
 } from "lucide-react";
-
-/**
- * Map a client's currency code to the matching lucide icon. Prevents the
- * SPEND tile from flashing a $ in GBP-denominated workspaces.
- */
-function getCurrencyIcon(currency: string, size: number) {
-  switch (currency.toUpperCase()) {
-    case "GBP": return <PoundSterling size={size} />;
-    case "EUR": return <Euro size={size} />;
-    case "JPY": return <JapaneseYen size={size} />;
-    case "INR": return <IndianRupee size={size} />;
-    case "USD":
-    default:     return <DollarSign size={size} />;
-  }
-}
+import { getCurrencyIcon } from "@/components/ui/currency-icon";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -486,7 +467,7 @@ export default function MinistryOverview() {
             Card 3 (HubSpot Confirmed) is the primary number — OnSocial green. */}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
           <KpiCard loading={windsorLoading}
-            title="SPEND"
+            title="Spend"
             value={formatCurrency(current.totalSpend, currency)}
             delta={deltas.spend}
             icon={getCurrencyIcon(currency, 12)}
@@ -503,7 +484,7 @@ export default function MinistryOverview() {
           />
           <KpiCard loading={windsorLoading}
             attributionSource="platform-claimed"
-            title="PLATFORM REPORTED"
+            title="Platform Reported"
             value={formatNumber(current.totalConversions)}
             delta={deltas.conversions}
             icon={<Users size={12} />}
@@ -525,7 +506,7 @@ export default function MinistryOverview() {
           />
           <KpiCard loading={windsorLoading}
             attributionSource="crm-verified"
-            title="HUBSPOT CONFIRMED"
+            title="HubSpot Confirmed"
             value={formatNumber(verifiedAdLeads)}
             delta={deltas.verifiedLeads}
             icon={<Users size={12} />}
@@ -547,7 +528,7 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard loading={windsorLoading}
-            title="CPL (CONFIRMED)"
+            title="CPL (Confirmed)"
             value={verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, currency) : "—"}
             delta={deltas.verifiedCpl}
             invertDelta
@@ -564,7 +545,7 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard loading={windsorLoading}
-            title="META SPEND"
+            title="Meta Spend"
             value={formatCurrency(current.metaSpend, currency)}
             delta={deltas.meta}
             icon={<MetaIcon size={12} />}
@@ -580,7 +561,7 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard loading={windsorLoading}
-            title="GOOGLE SPEND"
+            title="Google Spend"
             value={formatCurrency(current.googleSpend, currency)}
             delta={deltas.google}
             icon={<GoogleIcon size={12} />}

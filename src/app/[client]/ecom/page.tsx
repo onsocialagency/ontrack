@@ -21,13 +21,13 @@ import { MetricCell } from "@/components/ui/metric-cell";
 import { DataBlur } from "@/components/ui/data-blur";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
-  DollarSign,
   TrendingUp,
   BarChart3,
   ShoppingCart,
   Target,
   Package,
 } from "lucide-react";
+import { getCurrencyIcon } from "@/components/ui/currency-icon";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -334,12 +334,12 @@ export default function EcomPage() {
             title="Revenue"
             value={formatCurrency(ecom.revenue, client.currency)}
             delta={0}
-            icon={<DollarSign size={12} />}
+            icon={getCurrencyIcon(client.currency, 12)}
             tooltip="Total revenue attributed to ad campaigns"
             sparkline={sparklines.revenue}
             accentColor="#22C55E"
             onClick={() => setKpiDetail(buildKpiDetail(
-              "Revenue", <DollarSign size={18} />,
+              "Revenue", getCurrencyIcon(client.currency, 18),
               formatCurrency(ecom.revenue, client.currency),
               "revenue", revenueBreakdown, "#22C55E",
               (v) => formatCurrency(v, client.currency),

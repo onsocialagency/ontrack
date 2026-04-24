@@ -27,11 +27,11 @@ import {
 import { useLocale } from "@/lib/locale-context";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
-  DollarSign,
   TrendingUp,
   Target,
   ShoppingCart,
 } from "lucide-react";
+import { getCurrencyIcon } from "@/components/ui/currency-icon";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -319,13 +319,13 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
               title="Ad Spend"
               value={formatCurrency(kpis.spend, client.currency)}
               delta={deltas.spend}
-              icon={<DollarSign size={14} />}
+              icon={getCurrencyIcon(client.currency, 14)}
               tooltip="Total ad spend across all platforms in the selected period"
               sparkline={sparklines.spend}
               accentColor="#FF6A41"
               previousValue={prevFormatted?.spend}
               onClick={() => setKpiDetail(buildKpiDetail(
-                "Ad Spend", <DollarSign size={18} />,
+                "Ad Spend", getCurrencyIcon(client.currency, 18),
                 formatCurrency(kpis.spend, client.currency),
                 "spend", spendBreakdown, "#FF6A41",
                 (v) => formatCurrency(v, client.currency),
@@ -402,13 +402,13 @@ function DefaultClientOverview({ clientSlug }: { clientSlug: string }) {
               title="Conversion Value"
               value={formatCurrency(kpis.revenue, client.currency)}
               delta={deltas.revenue}
-              icon={<DollarSign size={14} />}
+              icon={getCurrencyIcon(client.currency, 14)}
               tooltip="Total revenue attributed to ad conversions"
               sparkline={sparklines.revenue}
               accentColor="#06B6D4"
               previousValue={prevFormatted ? formatCurrency(prevKpis!.revenue, client.currency) : undefined}
               onClick={() => setKpiDetail(buildKpiDetail(
-                "Conversion Value", <DollarSign size={18} />,
+                "Conversion Value", getCurrencyIcon(client.currency, 18),
                 formatCurrency(kpis.revenue, client.currency),
                 "revenue",
                 [

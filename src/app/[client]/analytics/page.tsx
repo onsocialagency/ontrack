@@ -20,10 +20,10 @@ import {
   UserPlus,
   ShoppingCart,
   Percent,
-  DollarSign,
   Layers,
   TrendingUp,
 } from "lucide-react";
+import { getCurrencyIcon } from "@/components/ui/currency-icon";
 
 /* ── Helpers ── */
 
@@ -408,23 +408,23 @@ export default function AnalyticsPage() {
                 title="Cost per Add to Cart"
                 value={formatCurrency(kpis.costPerAddToCart, client.currency)}
                 delta={0}
-                icon={<DollarSign size={12} />}
+                icon={getCurrencyIcon(client.currency, 12)}
                 tooltip="Total ad spend divided by add-to-cart events"
                 sparkline={sparklines.costPerAddToCart}
                 accentColor="#F59E0B"
                 invertDelta
-                onClick={() => setKpiDetail(buildDetail("Cost per Add to Cart", <DollarSign size={18} />, formatCurrency(kpis.costPerAddToCart, client.currency), "addToCartRate", "#F59E0B", (v) => formatCurrency(v, client.currency)))}
+                onClick={() => setKpiDetail(buildDetail("Cost per Add to Cart", getCurrencyIcon(client.currency, 18), formatCurrency(kpis.costPerAddToCart, client.currency), "addToCartRate", "#F59E0B", (v) => formatCurrency(v, client.currency)))}
               />
               <KpiCard loading={loading}
                 title="Cost per Session"
                 value={formatCurrency(kpis.costPerSession, client.currency)}
                 delta={0}
-                icon={<DollarSign size={12} />}
+                icon={getCurrencyIcon(client.currency, 12)}
                 tooltip="Total ad spend divided by total sessions"
                 sparkline={sparklines.costPerSession}
                 accentColor="#8B5CF6"
                 invertDelta
-                onClick={() => setKpiDetail(buildDetail("Cost per Session", <DollarSign size={18} />, formatCurrency(kpis.costPerSession, client.currency), "sessions", "#8B5CF6", (v) => formatCurrency(v, client.currency)))}
+                onClick={() => setKpiDetail(buildDetail("Cost per Session", getCurrencyIcon(client.currency, 18), formatCurrency(kpis.costPerSession, client.currency), "sessions", "#8B5CF6", (v) => formatCurrency(v, client.currency)))}
               />
             </div>
           </>

@@ -27,9 +27,10 @@ import { formatCurrency, formatNumber, formatROAS, cn } from "@/lib/utils";
 import { MetricCell } from "@/components/ui/metric-cell";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
-  DollarSign, Target, Eye, MousePointer, Percent,
+  Target, Eye, MousePointer, Percent,
   AlertTriangle, Info, ChevronDown,
 } from "lucide-react";
+import { getCurrencyIcon } from "@/components/ui/currency-icon";
 import {
   ResponsiveContainer,
   BarChart,
@@ -428,12 +429,12 @@ export default function IrgOverview() {
             title="Season Budget"
             value={formatCurrency(activeBudget, "EUR")}
             delta={0}
-            icon={<DollarSign size={14} />}
+            icon={getCurrencyIcon("EUR", 14)}
             tooltip={activeTab === "all" ? "Total IRG season budget (Mar–Oct 2026)" : `${activeBrand?.label} season budget`}
             subLabel={`${budgetUsedPct.toFixed(1)}% used · €${formatNumber(activeBudget - activeSpend)} remaining`}
             accentColor="#3B82F6"
             onClick={() => setKpiDetail(buildDetail(
-              "Season Budget", <DollarSign size={18} />,
+              "Season Budget", getCurrencyIcon("EUR", 18),
               formatCurrency(activeBudget, "EUR"),
               "spend", platformBreakdown, "#3B82F6",
               (v) => formatCurrency(v, "EUR"),
@@ -443,12 +444,12 @@ export default function IrgOverview() {
             title="Total Spend"
             value={formatCurrency(activeSpend, "EUR")}
             delta={deltaSpend}
-            icon={<DollarSign size={14} />}
+            icon={getCurrencyIcon("EUR", 14)}
             tooltip="Total ad spend across Meta + Google Ads"
             sparkline={sparklines.spend}
             accentColor="#FF6A41"
             onClick={() => setKpiDetail(buildDetail(
-              "Total Spend", <DollarSign size={18} />,
+              "Total Spend", getCurrencyIcon("EUR", 18),
               formatCurrency(activeSpend, "EUR"),
               "spend", platformBreakdown, "#FF6A41",
               (v) => formatCurrency(v, "EUR"),
