@@ -35,6 +35,9 @@ import {
   ResponsiveContainer,
   AreaChart,
   Area,
+  ComposedChart,
+  Bar,
+  Line,
   XAxis,
   YAxis,
   Tooltip,
@@ -771,25 +774,47 @@ export default function MinistryOverview() {
           </div>
         </div>
 
-        {/* ── SECTION 4: Daily Trend Chart ── */}
+        {/* ── SECTION 4: Daily Performance Chart ──
+            Rebuilt from "Spend & Conversions" dual-area to a spend-bars +
+            leads-line composite. Reasons:
+              1. "Conversions" was ambiguous for a lead-gen client — it's
+                 the wrong word. We sell leads, not a conversion event with
+                 a fixed value. Renamed to "Leads" throughout.
+              2. The previous chart hid CPL, which is the number that
+                 actually tells us whether we're doing a good or bad job.
+                 CPL now shows prominently in the tooltip and as the right
+                 axis scale when leads exist.
+              3. Spend as bars makes the daily volume obvious at a glance;
+                 leads as a line lets you see the delivery rhythm without
+                 competing for the same area fill.
+            Verified (HubSpot-confirmed) leads are preferred; we fall back
+            to platform-reported only on days HubSpot has no data, and the
+            tooltip labels which source it's using. */}
         <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-2">
-          <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
-            Daily Trend — Spend & Conversions
-          </h2>
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
+                Daily Performance — Spend, Leads & CPL
+              </h2>
+              <p className="text-[11px] text-[#64748B] mt-0.5">
+                Bars = daily spend. Line = HubSpot-confirmed leads. Hover for cost per lead.
+              </p>
+            </div>
+            <div className="flex items-center gap-4 text-[10px] text-[#94A3B8]">
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: ACCENT, opacity: 0.6 }} />
+                Spend
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-3 h-0.5 rounded-full bg-[#22C55E]" />
+                Leads (verified)
+              </span>
+            </div>
+          </div>
           <div className="h-[200px] sm:h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
-                <defs>
-                  <linearGradient id="ministrySpendGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={ACCENT} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="ministryConvGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+              <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                 <XAxis
                   dataKey="date"
                   tick={{ fill: "#94A3B8", fontSize: 9 }}
@@ -801,8 +826,8 @@ export default function MinistryOverview() {
                   tick={{ fill: "#94A3B8", fontSize: 9 }}
                   tickLine={false}
                   axisLine={false}
-                  width={50}
-                  tickFormatter={(v) => `£${v}`}
+                  width={54}
+                  tickFormatter={(v) => formatCurrency(Number(v), currency).replace(/\.00$/, "")}
                 />
                 <YAxis
                   yAxisId="right"
@@ -810,55 +835,59 @@ export default function MinistryOverview() {
                   tick={{ fill: "#94A3B8", fontSize: 9 }}
                   tickLine={false}
                   axisLine={false}
-                  width={35}
+                  width={32}
+                  allowDecimals={false}
                 />
                 <Tooltip
+                  cursor={{ fill: "rgba(255,255,255,0.03)" }}
                   contentStyle={{
                     backgroundColor: "#12121A",
                     border: "1px solid rgba(255,255,255,0.1)",
                     borderRadius: "8px",
                     fontSize: 11,
+                    padding: "8px 10px",
                   }}
-                  labelStyle={{ color: "#94A3B8" }}
-                  formatter={(val: unknown, name: unknown) => [
-                    name === "spend"
-                      ? formatCurrency(Number(val ?? 0), currency)
-                      : formatNumber(Number(val ?? 0)),
-                    name === "spend" ? "Spend" : "Conversions (platform reported)",
-                  ]}
+                  labelStyle={{ color: "#94A3B8", fontWeight: 600, marginBottom: 4 }}
+                  // Custom formatter — we inject a derived CPL row after the raw
+                  // values so readers always see the efficiency number, not just
+                  // spend and leads in isolation.
+                  formatter={(val: unknown, name: unknown, entry: { payload?: { spend?: number; verifiedLeads?: number } }) => {
+                    if (name === "spend") {
+                      return [formatCurrency(Number(val ?? 0), currency), "Spend"];
+                    }
+                    if (name === "verifiedLeads") {
+                      const leads = Number(val ?? 0);
+                      const spend = Number(entry?.payload?.spend ?? 0);
+                      const cpl = leads > 0 ? spend / leads : 0;
+                      return [
+                        `${formatNumber(leads)}${leads > 0 ? `  ·  CPL ${formatCurrency(cpl, currency)}` : ""}`,
+                        "Leads (HubSpot)",
+                      ];
+                    }
+                    return [String(val), String(name)];
+                  }}
                 />
-                <Area
+                <Bar
                   yAxisId="left"
-                  type="monotone"
                   dataKey="spend"
-                  stroke={ACCENT}
-                  fill="url(#ministrySpendGrad)"
-                  strokeWidth={2}
-                  dot={false}
+                  fill={ACCENT}
+                  fillOpacity={0.55}
+                  radius={[3, 3, 0, 0]}
                   name="spend"
+                  maxBarSize={28}
                 />
-                <Area
+                <Line
                   yAxisId="right"
                   type="monotone"
-                  dataKey="conversions"
-                  stroke="#3B82F6"
-                  fill="url(#ministryConvGrad)"
-                  strokeWidth={2}
-                  dot={false}
-                  name="conversions"
+                  dataKey="verifiedLeads"
+                  stroke="#22C55E"
+                  strokeWidth={2.25}
+                  dot={{ r: 2.5, fill: "#22C55E", stroke: "#12121A", strokeWidth: 1 }}
+                  activeDot={{ r: 4, fill: "#22C55E", stroke: "#12121A", strokeWidth: 2 }}
+                  name="verifiedLeads"
                 />
-              </AreaChart>
+              </ComposedChart>
             </ResponsiveContainer>
-          </div>
-          <div className="flex items-center justify-center gap-6 text-[10px] text-[#94A3B8]">
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 rounded-full" style={{ backgroundColor: ACCENT }} />
-              Spend
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 rounded-full bg-blue-500" />
-              Conversions (platform reported)
-            </span>
           </div>
         </div>
 
