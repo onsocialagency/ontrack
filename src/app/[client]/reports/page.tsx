@@ -59,16 +59,23 @@ function aggregateCampaigns(rows: WindsorRow[]) {
 
 /* ── Constants ── */
 
-const METRIC_OPTIONS = [
+const METRIC_OPTIONS_ECOM = [
   "Spend", "ROAS", "MER", "CPA", "CPL", "Impressions",
   "Clicks", "CTR", "Conversions", "Revenue", "AOV", "Frequency",
+];
+
+// Lead-gen clients (Ministry, etc.) never trade on ROAS/revenue/AOV —
+// hide the ecommerce-only metrics so they can't be picked for a report.
+const METRIC_OPTIONS_LEADGEN = [
+  "Spend", "CPL", "CPA", "Impressions",
+  "Clicks", "CTR", "Conversions", "Frequency",
 ];
 
 const LAYOUT_OPTIONS = [
   { value: "executive", label: "Executive Summary", description: "KPIs + key insights for stakeholders" },
   { value: "detailed", label: "Detailed Report", description: "Full breakdown with campaign data" },
   { value: "creative", label: "Creative Performance", description: "Ad creative metrics + scoring" },
-  { value: "campaign", label: "Campaign Breakdown", description: "Campaign-level table with ROAS" },
+  { value: "campaign", label: "Campaign Breakdown", description: "Campaign-level table" },
 ];
 
 const DATE_LABELS: Record<string, string> = {
@@ -142,8 +149,12 @@ export default function ReportsPage() {
       }));
   }, [isLive, windsorData, mockCampaigns]);
 
+  const isLeadGen = clientOrNull?.type === "lead_gen";
+  const METRIC_OPTIONS = isLeadGen ? METRIC_OPTIONS_LEADGEN : METRIC_OPTIONS_ECOM;
   const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(
-    new Set(["Spend", "ROAS", "CPA", "Conversions", "Revenue"]),
+    new Set(isLeadGen
+      ? ["Spend", "CPL", "CPA", "Conversions", "Clicks"]
+      : ["Spend", "ROAS", "CPA", "Conversions", "Revenue"]),
   );
   const [layout, setLayout] = useState("executive");
   const [dateRange, setDateRange] = useState("30d");
