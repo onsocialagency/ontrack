@@ -118,61 +118,47 @@ export function KpiCard({
       )}
       onClick={onClick}
     >
-      {/* Top row: Icon + Title + Info (title gets full width, no delta competing) */}
-      <div className="flex items-start gap-1.5 sm:gap-2 min-w-0 mb-2 sm:mb-3">
-        {icon && (
-          <span
-            className="flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-md sm:rounded-lg transition-colors flex-shrink-0"
-            style={{ backgroundColor: `${accentColor}15` }}
-          >
-            <span style={{ color: accentColor }}>{icon}</span>
-          </span>
-        )}
-        <span className={cn(
-          "flex-1 min-w-0 font-medium text-[#A8BBCC] whitespace-normal break-words leading-tight pt-0.5",
-          isCompact ? "text-[11px] sm:text-xs" : "text-[11px] sm:text-[13px]",
-        )}>
-          {title}
-        </span>
-        {tooltip && (
-          <span
-            ref={tooltipAnchorRef}
-            className="flex-shrink-0 cursor-help hidden sm:inline-flex pt-1"
-            onMouseEnter={() => setShowTooltip(true)}
-            onMouseLeave={() => setShowTooltip(false)}
-          >
-            <Info size={12} className="text-[#A8BBCC]/30 hover:text-[#A8BBCC]/60 transition-colors" />
-            {showTooltip && tooltipPos && typeof document !== "undefined" && createPortal(
-              <span
-                className="fixed z-[100] px-3 py-2 rounded-xl text-[11px] leading-relaxed font-medium bg-[#1A1A2E] text-[#E2E8F0] border border-white/[0.1] shadow-2xl max-w-[220px] whitespace-normal pointer-events-none -translate-x-1/2 -translate-y-full"
-                style={{ top: tooltipPos.top - 8, left: tooltipPos.left }}
-              >
-                {tooltip}
-              </span>,
-              document.body,
-            )}
-          </span>
-        )}
-      </div>
-
-      {/* Value + Delta (inline — Stripe/Linear pattern) */}
-      <div className="flex items-baseline justify-between gap-2 mb-0.5 sm:mb-1">
-        <div className="flex items-baseline gap-1 sm:gap-1.5 min-w-0">
-          {prefix && (
-            <span className="text-xs sm:text-sm font-medium text-[#A8BBCC]">{prefix}</span>
+      {/* Top row: Icon + Title + Info on the left, Delta chip pinned top-right */}
+      <div className="flex items-start justify-between gap-2 mb-2 sm:mb-3">
+        <div className="flex items-start gap-1.5 sm:gap-2 min-w-0 flex-1">
+          {icon && (
+            <span
+              className="flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-md sm:rounded-lg transition-colors flex-shrink-0"
+              style={{ backgroundColor: `${accentColor}15` }}
+            >
+              <span style={{ color: accentColor }}>{icon}</span>
+            </span>
           )}
           <span className={cn(
-            "font-bold tracking-tight text-white tabular-nums transition-[filter] duration-300 truncate",
-            isCompact ? "text-xl sm:text-2xl" : "text-xl sm:text-[28px] leading-none",
-            loading && "blur-md opacity-70 animate-pulse select-none",
+            "min-w-0 font-medium text-[#A8BBCC] whitespace-normal break-words leading-tight pt-0.5",
+            isCompact ? "text-[11px] sm:text-xs" : "text-[11px] sm:text-[13px]",
           )}>
-            {value}
+            {title}
+            {tooltip && (
+              <span
+                ref={tooltipAnchorRef}
+                className="ml-1 cursor-help hidden sm:inline-flex align-middle"
+                onMouseEnter={() => setShowTooltip(true)}
+                onMouseLeave={() => setShowTooltip(false)}
+              >
+                <Info size={11} className="text-[#A8BBCC]/30 hover:text-[#A8BBCC]/60 transition-colors" />
+                {showTooltip && tooltipPos && typeof document !== "undefined" && createPortal(
+                  <span
+                    className="fixed z-[100] px-3 py-2 rounded-xl text-[11px] leading-relaxed font-medium bg-[#1A1A2E] text-[#E2E8F0] border border-white/[0.1] shadow-2xl max-w-[220px] whitespace-normal pointer-events-none -translate-x-1/2 -translate-y-full"
+                    style={{ top: tooltipPos.top - 8, left: tooltipPos.left }}
+                  >
+                    {tooltip}
+                  </span>,
+                  document.body,
+                )}
+              </span>
+            )}
           </span>
         </div>
         {hasDelta && (
           <span
             className={cn(
-              "inline-flex items-center gap-0.5 px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold flex-shrink-0 transition-[filter] duration-300",
+              "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-semibold flex-shrink-0 self-start transition-[filter] duration-300",
               isPositive
                 ? "bg-[#22C55E]/10 text-[#22C55E]"
                 : "bg-[#EF4444]/10 text-[#EF4444]",
@@ -180,10 +166,25 @@ export function KpiCard({
             )}
           >
             {/* Arrow direction reflects actual value movement (up/down), color reflects sentiment (good/bad) */}
-            {delta >= 0 ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+            {delta >= 0 ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
             {Math.abs(delta).toFixed(1)}%
           </span>
         )}
+      </div>
+
+      {/* Value — full width, never truncated */}
+      <div className="flex items-baseline gap-1 sm:gap-1.5 mb-0.5 sm:mb-1 min-w-0">
+        {prefix && (
+          <span className="text-xs sm:text-sm font-medium text-[#A8BBCC]">{prefix}</span>
+        )}
+        <span className={cn(
+          "font-bold tracking-tight text-white tabular-nums transition-[filter] duration-300 whitespace-nowrap",
+          // Responsive sizing so £89,450 fits a 6-col card at lg without ellipsis
+          isCompact ? "text-lg sm:text-xl" : "text-lg sm:text-xl lg:text-[22px] xl:text-2xl leading-none",
+          loading && "blur-md opacity-70 animate-pulse select-none",
+        )}>
+          {value}
+        </span>
       </div>
 
       {/* Attribution source badge */}
@@ -213,7 +214,7 @@ export function KpiCard({
           <ResponsiveContainer width="100%" height={isCompact ? 40 : 52}>
             <AreaChart data={sparkline} margin={{ top: 4, right: 2, left: 2, bottom: 0 }}>
               <defs>
-                <linearGradient id={`spark-${title.replace(/\s/g, "")}`} x1="0" y1="0" x2="0" y2="1">
+                <linearGradient id={`spark-${title.replace(/[^a-zA-Z0-9]/g, "")}`} x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={accentColor} stopOpacity={0.2} />
                   <stop offset="100%" stopColor={accentColor} stopOpacity={0} />
                 </linearGradient>
@@ -228,7 +229,7 @@ export function KpiCard({
                 type="monotone"
                 dataKey="v"
                 stroke={accentColor}
-                fill={`url(#spark-${title.replace(/\s/g, "")})`}
+                fill={`url(#spark-${title.replace(/[^a-zA-Z0-9]/g, "")})`}
                 strokeWidth={1.5}
                 dot={false}
                 activeDot={{
