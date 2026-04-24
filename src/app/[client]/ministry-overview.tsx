@@ -440,18 +440,23 @@ export default function MinistryOverview() {
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
 
         <DataBlur isBlurred={dataSource !== "windsor" && !windsorLoading} isLoading={windsorLoading} className="space-y-4 sm:space-y-5">
-        {/* ── SECTION 1: KPI Strip ── */}
+        {/* ── SECTION 1: KPI Strip ──
+            Team feedback: each card should state what it is, what the number
+            means, and where it comes from. No bare numbers without a label.
+            Order matches client brief: Spend → Platform → HubSpot → CPL → Meta → Google.
+            Card 3 (HubSpot Confirmed) is the primary number — OnSocial green. */}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4">
           <KpiCard loading={windsorLoading}
-            title="Total Spend"
+            title="SPEND"
             value={formatCurrency(current.totalSpend, currency)}
             delta={deltas.spend}
             icon={<DollarSign size={12} />}
-            tooltip="Combined Meta + Google spend for the selected period"
+            subLabel="Across Meta and Google"
+            tooltip="Combined ad spend across Meta (Facebook/Instagram) and Google Ads for the selected date range."
             sparkline={sparklines.spend}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
-              "Total Spend", <DollarSign size={18} />,
+              "Spend", <DollarSign size={18} />,
               formatCurrency(current.totalSpend, currency),
               "spend", platformBreakdown, ACCENT,
               (v) => formatCurrency(v, currency),
@@ -459,15 +464,16 @@ export default function MinistryOverview() {
           />
           <KpiCard loading={windsorLoading}
             attributionSource="platform-claimed"
-            title="Platform Claimed"
+            title="PLATFORM REPORTED"
             value={formatNumber(current.totalConversions)}
             delta={deltas.conversions}
             icon={<Users size={12} />}
-            tooltip="Conversions reported by Meta + Google pixels — includes post-view"
+            subLabel="Counted by ad platforms"
+            tooltip="Sum of conversions as reported by Meta and Google. Includes platform view-through conversions (Meta) and 30-day click windows (Google). These numbers will always be higher than HubSpot."
             sparkline={sparklines.conversions}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
-              "Platform Claimed", <Users size={18} />,
+              "Platform Reported", <Users size={18} />,
               formatNumber(current.totalConversions),
               "conversions",
               [
@@ -480,48 +486,51 @@ export default function MinistryOverview() {
           />
           <KpiCard loading={windsorLoading}
             attributionSource="crm-verified"
-            title="Verified Ad Leads"
+            title="HUBSPOT CONFIRMED"
             value={formatNumber(verifiedAdLeads)}
             delta={deltas.verifiedLeads}
             icon={<Users size={12} />}
-            tooltip={`Leads cross-referenced to a live campaign (via hsa_cam / utm_campaign / FB Lead Ads form). HubSpot total this period: ${formatNumber(hubspotTotal)}.`}
+            subLabel="Source of truth"
+            tooltip={`Paid leads confirmed in HubSpot — cross-referenced to a live campaign via hsa_cam / utm_campaign / Facebook Lead Ads form. This is the source of truth for cost-per-lead. HubSpot total (all sources including organic/direct) for this period: ${formatNumber(hubspotTotal)}.`}
             sparkline={sparklines.verifiedLeads}
-            accentColor={ACCENT}
+            accentColor="#22C55E"
             onClick={() => setKpiDetail(buildDetail(
-              "Verified Ad Leads", <Users size={18} />,
+              "HubSpot Confirmed", <Users size={18} />,
               formatNumber(verifiedAdLeads),
               "verifiedLeads",
               [
-                { name: "Verified (campaign match)", value: verifiedAdLeads, formatted: formatNumber(verifiedAdLeads), color: ACCENT },
+                { name: "Verified (campaign match)", value: verifiedAdLeads, formatted: formatNumber(verifiedAdLeads), color: "#22C55E" },
                 { name: "Heuristic paid (no join)", value: hubspotReconciliation.totalHeuristicPaid, formatted: formatNumber(hubspotReconciliation.totalHeuristicPaid), color: "#F59E0B" },
                 { name: "Other (organic / direct / email)", value: Math.max(hubspotTotal - verifiedAdLeads - hubspotReconciliation.totalHeuristicPaid, 0), formatted: formatNumber(Math.max(hubspotTotal - verifiedAdLeads - hubspotReconciliation.totalHeuristicPaid, 0)), color: "#64748B" },
               ],
-              ACCENT,
+              "#22C55E",
               (v) => formatNumber(v),
             ))}
           />
           <KpiCard loading={windsorLoading}
-            title="Verified CPL"
+            title="CPL (CONFIRMED)"
             value={verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, currency) : "—"}
             delta={deltas.verifiedCpl}
             invertDelta
             icon={<TrendingDown size={12} />}
-            tooltip="Total ad spend ÷ verified ad leads. The true cost per lead we can defend."
+            subLabel="Cost per HubSpot lead"
+            tooltip="Total ad spend divided by HubSpot-confirmed paid leads. Excludes organic and direct leads from the denominator. This is the real cost per lead — the number we defend."
             sparkline={sparklines.verifiedCpl}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
-              "Verified CPL", <TrendingDown size={18} />,
+              "CPL (Confirmed)", <TrendingDown size={18} />,
               verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, currency) : formatCurrency(current.blendedCpl, currency),
               "verifiedCpl", platformBreakdown, ACCENT,
               (v) => formatCurrency(v, currency),
             ))}
           />
           <KpiCard loading={windsorLoading}
-            title="Meta Spend"
+            title="META SPEND"
             value={formatCurrency(current.metaSpend, currency)}
             delta={deltas.meta}
             icon={<MetaIcon size={12} />}
-            tooltip="Facebook / Instagram ad spend"
+            subLabel="This period"
+            tooltip="Facebook and Instagram ad spend only (Meta Ads Manager). Excludes Google and any other channel."
             sparkline={sparklines.metaSpend}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
@@ -532,11 +541,12 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard loading={windsorLoading}
-            title="Google Spend"
+            title="GOOGLE SPEND"
             value={formatCurrency(current.googleSpend, currency)}
             delta={deltas.google}
             icon={<GoogleIcon size={12} />}
-            tooltip="Google Ads spend"
+            subLabel="This period"
+            tooltip="Google Ads spend only (Search + Performance Max). Excludes Meta and any other channel."
             sparkline={sparklines.googleSpend}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
@@ -546,16 +556,6 @@ export default function MinistryOverview() {
               (v) => formatCurrency(v, currency),
             ))}
           />
-        </div>
-
-        {/* Source labels beneath KPI strip */}
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3 sm:gap-4 -mt-1">
-          <div />
-          <p className="text-[9px] text-[#94A3B8]/60 pl-4">Platform reported</p>
-          <p className="text-[9px] pl-4" style={{ color: MINISTRY_BRAND.accentColor }}>Verified</p>
-          <p className="text-[9px] text-[#94A3B8]/60 pl-4">Spend ÷ Verified</p>
-          <div />
-          <div />
         </div>
 
         {/* ── SECTION 2: Budget Pacing + Platform Split ── */}
