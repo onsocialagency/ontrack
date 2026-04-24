@@ -61,24 +61,29 @@ const DEFAULT_TIMEZONE = "Europe/London";
 function buildFormatters(config: LocaleConfig): LocaleFormatters {
   const { locale, timezone } = config;
 
-  // Pre-build Intl formatters (they're cached internally by the engine)
+  // Pre-build Intl formatters (they're cached internally by the engine).
+  //
+  // IMPORTANT: date-only formatters intentionally omit `timeZone`. The Date
+  // objects we format here come from the picker / context and represent
+  // *local-midnight calendar dates* (e.g. `new Date(2026, 3, 1)`). Forcing an
+  // Intl timeZone would re-interpret that local-midnight instant in the
+  // configured zone, shifting the displayed day by ±1 whenever the user's
+  // browser is east/west of the client's timezone. The wall-clock `timeFmt`
+  // below is the only place a timezone conversion is actually desired.
   const shortDateFmt = new Intl.DateTimeFormat(locale, {
     day: "2-digit",
     month: "2-digit",
-    timeZone: timezone,
   });
 
   const mediumDateFmt = new Intl.DateTimeFormat(locale, {
     day: "numeric",
     month: "short",
-    timeZone: timezone,
   });
 
   const fullDateFmt = new Intl.DateTimeFormat(locale, {
     day: "numeric",
     month: "short",
     year: "numeric",
-    timeZone: timezone,
   });
 
   const timeFmt = new Intl.DateTimeFormat(locale, {
@@ -91,7 +96,6 @@ function buildFormatters(config: LocaleConfig): LocaleFormatters {
     day: "numeric",
     month: "numeric",
     year: "numeric",
-    timeZone: timezone,
   });
 
   return {

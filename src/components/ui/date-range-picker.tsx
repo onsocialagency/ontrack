@@ -7,6 +7,7 @@ import {
   endOfMonth,
   startOfWeek,
   endOfWeek,
+  startOfDay,
   addDays,
   addMonths,
   subMonths,
@@ -96,7 +97,12 @@ export function DateRangePicker() {
     setOpen(false);
   }
 
+  // Lock out future dates — metrics for days that haven't happened yet are
+  // always zero and selecting them produces an off-by-N blended window.
+  const todayStart = useMemo(() => startOfDay(new Date()), []);
+
   function handleDayClick(day: Date) {
+    if (isAfter(day, todayStart)) return;
     if (!selecting || selecting === "from") {
       setTempFrom(day);
       setSelecting("to");
@@ -263,12 +269,14 @@ export function DateRangePicker() {
                 const isEndpoint = isFrom || isTo;
                 const isRangeStart = isFrom && displayTo != null && !isBefore(displayTo, displayFrom);
                 const isRangeEnd = isTo && displayTo != null && !isAfter(displayFrom, displayTo);
+                const isFuture = isAfter(d, todayStart);
 
                 return (
                   <button
                     key={i}
                     onClick={() => handleDayClick(d)}
-                    onMouseEnter={() => selecting === "to" && setHoverDay(d)}
+                    disabled={isFuture}
+                    onMouseEnter={() => selecting === "to" && !isFuture && setHoverDay(d)}
                     className={cn(
                       "relative h-9 text-[13px] transition-colors",
                       // Range background (full cell)
@@ -279,6 +287,8 @@ export function DateRangePicker() {
                       isRangeEnd && "bg-gradient-to-l from-transparent to-[#3B82F6]/15",
                       // Out of month
                       !inMonth && "text-[#94A3B8]/25",
+                      // Future dates — not selectable
+                      isFuture && "cursor-not-allowed",
                     )}
                   >
                     <span
@@ -288,8 +298,10 @@ export function DateRangePicker() {
                         isEndpoint && "bg-[#3B82F6] text-white font-bold",
                         // Today ring
                         today && !isEndpoint && "ring-1 ring-[#3B82F6]/50 font-semibold text-[#60A5FA]",
+                        // Future — muted, un-hoverable
+                        isFuture && !isEndpoint && "text-[#94A3B8]/25",
                         // Normal in-month
-                        inMonth && !isEndpoint && !today && "text-white hover:bg-white/[0.1]",
+                        inMonth && !isEndpoint && !today && !isFuture && "text-white hover:bg-white/[0.1]",
                       )}
                     >
                       {format(d, "d")}
