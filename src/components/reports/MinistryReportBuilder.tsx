@@ -28,7 +28,8 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, Send, Trash2, Sparkles, Calendar, FileText } from "lucide-react";
+import { Download, Send, Trash2, Sparkles, FileText } from "lucide-react";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
 import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
 import { classifyPlatform } from "@/lib/windsor";
 import {
@@ -87,8 +88,16 @@ interface ReportRow {
   plannedLeads: number; // midpoint of LEAD_TYPE.volume*
   cpl: number; // actualSpend / leads
   estCpl: number; // midpoint of LEAD_TYPE.targetCpl*
-  customerCount: number; // manual
-  cpa: number; // manual
+  // Customer count + CPA: optional manual overrides. Default to 0 /
+  // computed proxies when blank. Real "customer" data lives in the
+  // billing system (signed contracts / paid Day Passes) and isn't
+  // fetched through Windsor — so manual entry remains the ground truth.
+  // CPA falls back to spend ÷ qualified leads when no override given,
+  // since qualification is the closest signal we have to "real
+  // intent" without billing data wired in.
+  customerCount: number; // manual override; 0 = "no number entered"
+  cpa: number;           // manual override; 0 = use derivedCpa instead
+  derivedCpa: number;    // computed: actualSpend / qualified
   // Per-lead-type Windsor metrics (sums across that product's campaigns)
   impressions: number;
   clicks: number;
@@ -303,6 +312,10 @@ function buildRows(
       const ctr = a.impressions > 0 ? (ctrClicks / a.impressions) * 100 : 0;
       const cpc = ctrClicks > 0 ? actualSpend / ctrClicks : 0;
       const qualificationRate = leads > 0 ? (qualified / leads) * 100 : 0;
+      // Auto-derived CPA proxy when no manual override is given:
+      // spend ÷ qualified leads. Best signal we have without the
+      // billing-system customer count wired in.
+      const derivedCpa = qualified > 0 ? actualSpend / qualified : 0;
       return {
         leadType: lt,
         actualSpend,
@@ -313,6 +326,7 @@ function buildRows(
         estCpl,
         customerCount: override.customerCount,
         cpa: override.cpa,
+        derivedCpa,
         impressions: a.impressions,
         clicks: a.clicks,
         ctr,
@@ -581,11 +595,16 @@ export function MinistryReportBuilder({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
             <Label>Period</Label>
-            <p className="text-xs text-white bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 flex items-center gap-2">
-              <Calendar size={12} className="text-[#94A3B8]" />
-              {defaultPeriodLabel}
+            {/* Real DateRangePicker — same component used in the page
+                header, sharing the same global state. Changing it here
+                updates every other Ministry surface that's bound to the
+                same context (Overview, Campaigns, etc.). */}
+            <div className="report-period-picker">
+              <DateRangePicker />
+            </div>
+            <p className="text-[10px] text-[#64748B] mt-1">
+              Synced with the global date picker — change it here or in the header.
             </p>
-            <p className="text-[10px] text-[#64748B] mt-1">Set via the global date picker.</p>
           </div>
           <div>
             <Label>Platform</Label>
@@ -682,8 +701,8 @@ export function MinistryReportBuilder({
             <Checkbox label="Actual vs Target Spend" value={metrics.actualVsTargetSpend} onChange={(v) => setMetrics((m) => ({ ...m, actualVsTargetSpend: v }))} />
             <Checkbox label="Leads vs Planned" value={metrics.leadsVsPlanned} onChange={(v) => setMetrics((m) => ({ ...m, leadsVsPlanned: v }))} />
             <Checkbox label="CPL vs Estimated" value={metrics.cplVsEstimated} onChange={(v) => setMetrics((m) => ({ ...m, cplVsEstimated: v }))} />
-            <Checkbox label="Customer count (manual)" value={metrics.customerCount} onChange={(v) => setMetrics((m) => ({ ...m, customerCount: v }))} />
-            <Checkbox label="CPA (manual)" value={metrics.cpa} onChange={(v) => setMetrics((m) => ({ ...m, cpa: v }))} />
+            <Checkbox label="Customer count" value={metrics.customerCount} onChange={(v) => setMetrics((m) => ({ ...m, customerCount: v }))} />
+            <Checkbox label="CPA" value={metrics.cpa} onChange={(v) => setMetrics((m) => ({ ...m, cpa: v }))} />
             <Checkbox label="Sales sequencing stats" value={metrics.salesSequencing} onChange={(v) => setMetrics((m) => ({ ...m, salesSequencing: v }))} />
             <Checkbox label="Narrative notes" value={metrics.narrative} onChange={(v) => setMetrics((m) => ({ ...m, narrative: v }))} />
           </div>
@@ -698,12 +717,19 @@ export function MinistryReportBuilder({
           </div>
         </div>
 
-        {/* Manual customer / CPA inputs (per lead type) — only shown if
-            either toggle is on. Keeps the controls panel compact when
-            the user isn't tracking customers. */}
+        {/* Optional customer / CPA overrides per lead type — only
+            shown if either toggle is on. The CPA column auto-fills
+            with spend ÷ qualified-leads when no override is given;
+            the manual entry exists for the case where Daisy has the
+            real closed-customer count from the billing system. */}
         {(metrics.customerCount || metrics.cpa) && liveRows.length > 0 && (
           <div>
-            <Label>Manual customer + CPA per lead type</Label>
+            <Label>Customer + CPA overrides per lead type</Label>
+            <p className="text-[10px] text-[#64748B] -mt-1 mb-1.5">
+              Optional. Leave blank to use the auto-derived CPA
+              (spend ÷ qualified leads). Customer count comes from
+              your billing system, not HubSpot.
+            </p>
             <div className="bg-white/[0.02] border border-white/[0.04] rounded-lg overflow-hidden">
               <table className="w-full text-xs">
                 <thead className="bg-white/[0.02]">
@@ -890,9 +916,24 @@ export function MinistryReportBuilder({
                       {metrics.customerCount && (
                         <td className="p-2 text-right tabular-nums">{r.customerCount > 0 ? formatNumber(r.customerCount) : "—"}</td>
                       )}
-                      {metrics.cpa && (
-                        <td className="p-2 text-right tabular-nums">{r.cpa > 0 ? formatCurrency(r.cpa, currency) : "—"}</td>
-                      )}
+                      {metrics.cpa && (() => {
+                        // Prefer the manual override; otherwise show the
+                        // auto-derived spend ÷ qualified value with a
+                        // small "(auto)" tag so the reader knows the
+                        // source of the number.
+                        const useManual = r.cpa > 0;
+                        const display = useManual ? r.cpa : r.derivedCpa;
+                        return (
+                          <td className="p-2 text-right tabular-nums">
+                            {display > 0 ? (
+                              <>
+                                {formatCurrency(display, currency)}
+                                {!useManual && <span className="ml-1 text-[8px] uppercase text-[#94A3B8]/60">auto</span>}
+                              </>
+                            ) : "—"}
+                          </td>
+                        );
+                      })()}
                     </tr>
                   ))}
                 </tbody>
