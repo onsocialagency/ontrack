@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { getClientBySlug, getAllClients } from "@/lib/client-store";
 import { ClientLayout } from "@/components/layout/client-layout";
+import { getSessionFromCookies, canAccessClient } from "@/lib/auth";
 
 export default async function ClientRootLayout({
   children,
@@ -12,20 +14,31 @@ export default async function ClientRootLayout({
   const { client: clientSlug } = await params;
   const client = await getClientBySlug(clientSlug);
 
-  // Determine admin status from auth cookie
+  // Auth gate. We read the session once and use it for both:
+  //   - access control (block client A from typing /clientB into the URL)
+  //   - admin status (drives the client-switcher in the sidebar)
+  // Anyone with no session goes to /login. A "client" session whose
+  // slug doesn't match the URL gets bounced back to its own dashboard
+  // so a Ministry user manually browsing to /irg lands at /ministry,
+  // not at IRG's data. Masters bypass all of this.
   const cookieStore = await cookies();
-  const authCookie = cookieStore.get("ontrack-auth")?.value;
-  let isAdmin = false;
-  if (authCookie) {
-    try {
-      const auth = JSON.parse(authCookie);
-      isAdmin = auth.role === "master";
-    } catch {
-      // ignore
+  const session = getSessionFromCookies(cookieStore);
+  if (!session) {
+    redirect("/login");
+  }
+  if (!canAccessClient(session, clientSlug)) {
+    if (session.role === "client") {
+      redirect(`/${session.slug}`);
     }
+    redirect("/login");
   }
 
-  // Build client list for admin switcher
+  const isAdmin = session.role === "master";
+
+  // Build client list for the sidebar admin switcher (admins only —
+  // a client session never sees the switcher, and even if the markup
+  // were tampered with, the server-side guard above blocks the
+  // resulting navigation).
   const allStoredClients = isAdmin ? await getAllClients() : [];
   const allClients = allStoredClients.map((c) => ({ slug: c.slug, name: c.name, primaryColor: c.primaryColor }));
 

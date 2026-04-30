@@ -12,6 +12,7 @@ import {
   filterByClient,
 } from "@/lib/windsor";
 import { getClientBySlug } from "@/lib/client-store";
+import { getSessionFromRequest, canAccessClient, isMaster } from "@/lib/auth";
 
 /**
  * Windsor API proxy — protects the API key from client exposure.
@@ -36,8 +37,21 @@ export async function GET(request: NextRequest) {
   const dateFrom = searchParams.get("date_from");
   const dateTo = searchParams.get("date_to");
 
-  // Account discovery mode (no client needed)
+  // Auth gate. Without this anyone with the URL could call
+  // /api/windsor?client=irg&type=campaigns from a Ministry session
+  // and read IRG's data. Reject anything that isn't either the
+  // master role or a client-session whose slug matches the requested
+  // client. Discover mode is master-only since it lists every
+  // account in the Windsor connector.
+  const session = getSessionFromRequest(request);
+  if (!session) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   if (type === "discover") {
+    if (!isMaster(session)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const apiKey = process.env.WINDSOR_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: "No Windsor API key in env" }, { status: 503 });
@@ -53,6 +67,11 @@ export async function GET(request: NextRequest) {
 
   if (!clientSlug) {
     return NextResponse.json({ error: "Client slug required" }, { status: 400 });
+  }
+
+  // Cross-tenant guard: a client session can only fetch its own slug.
+  if (!canAccessClient(session, clientSlug)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // Look up client config and API key
