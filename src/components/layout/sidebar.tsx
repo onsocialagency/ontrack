@@ -68,10 +68,13 @@ function getMinistryNav(slug: string): NavItem[] {
   return [
     { label: "Overview", href: base, icon: <LayoutDashboard size={20} /> },
     { label: "Suggestions", href: `${base}/suggestions`, icon: <Lightbulb size={20} /> },
-    { label: "Campaigns", href: `${base}/attribution`, icon: <Megaphone size={20} /> },
+    // Campaigns → the new sortable / filterable table (formerly a redirect to /attribution).
+    { label: "Campaigns", href: `${base}/campaigns`, icon: <Megaphone size={20} /> },
     { label: "Creative Lab", href: `${base}/creative-lab`, icon: <Palette size={20} /> },
     { label: "Lead Generation", href: `${base}/lead-gen`, icon: <Target size={20} /> },
     { label: "CRM Reconciliation", href: `${base}/crm`, icon: <GitCompare size={20} /> },
+    // Reports tab — Ministry-flavoured weekly/monthly builder lives at /reports.
+    { label: "Reports", href: `${base}/reports`, icon: <FileText size={20} /> },
     { label: "Settings", href: `${base}/settings`, icon: <Settings size={20} /> },
   ];
 }
