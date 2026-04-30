@@ -806,38 +806,42 @@ export default function MinistryOverview() {
         </div>
 
         {/* ── SECTION 3: Lead Type Performance Grid ──
-            Six product cards: Club, Day Pass, Meeting Room, Private Office,
-            Dedicated Desk, Hot Desk. The "General Enquiry" bucket is left
-            out of this grid — it's a catch-all for un-mapped events and the
-            client doesn't run a campaign called "general", so giving it a
-            card next to the real products inflates the visual surface and
-            usually shows red where it's actually just untagged data. The
-            general bucket still exists in LEAD_TYPES so the reconciler can
-            land unknown contacts somewhere; it's just not rendered here.
+            Six product cards: Club, Day Pass, Meeting Room, Private
+            Office, Dedicated Desk, Hot Desk. General Enquiry is excluded
+            (catch-all bucket, not a real product).
 
-            Each card shows:
-              - HubSpot Confirmed lead count (the source of truth)
-              - CPL Confirmed = product Windsor spend ÷ verified contacts
-              - Status badge driven by CPL vs target range
-              - Platform-claimed count as muted secondary text so the team
-                can still see the over-attribution gap at a glance */}
+            Per Daisy: this grid runs on platform-reported conversions —
+            what Meta and Google's ad platforms claim — because that's
+            the operational signal we steer creative + budget on
+            campaign-by-campaign. HubSpot-confirmed leads appear as a
+            secondary "CRM cross-check" line so the team can spot the
+            attribution gap at a glance, but the headline number, the
+            CPL and the status badge are all platform-driven for now.
+            Cross-correlation with HubSpot is the longer-term direction;
+            this view keeps the day-to-day signal in front. */}
         <div>
-          <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-2">
-            Lead Type Performance
-          </h2>
+          <div className="flex items-baseline justify-between gap-2 mb-2">
+            <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
+              Lead Type Performance
+            </h2>
+            <p className="text-[9px] text-[#64748B] uppercase tracking-wider">
+              Platform reported · CRM cross-check below each card
+            </p>
+          </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
             {orderedLeadTypes
               .filter((lt) => lt.id !== "general")
               .map((lt) => {
                 const bd = leadTypeBreakdown[lt.id];
+                const platformCount = bd?.conversions ?? 0;
+                const platformCpl = bd?.cpl ?? 0;
                 const verified = verifiedByLeadType[lt.id]?.verified ?? 0;
                 const confirmedCpl = verifiedByLeadType[lt.id]?.confirmedCpl ?? 0;
-                const platformCount = bd?.conversions ?? 0;
-                // CPL Confirmed drives the status badge — that's the number
-                // we defend, not the platform-claimed CPL.
-                const hasData = verified > 0 && (bd?.spend ?? 0) > 0;
-                const status = getCplStatus(confirmedCpl, lt, hasData);
+                // Status + CPL both run on platform numbers now — that's
+                // the operational signal we want flagged.
+                const hasData = platformCount > 0 && (bd?.spend ?? 0) > 0;
+                const status = getCplStatus(platformCpl, lt, hasData);
                 const statusColors = CPL_STATUS_COLORS[status];
 
                 return (
@@ -862,13 +866,13 @@ export default function MinistryOverview() {
 
                     <div className="space-y-1">
                       <div>
-                        <span className="text-xl font-bold">{formatNumber(verified)}</span>
-                        <p className="text-[9px] text-[#94A3B8]/60">HubSpot confirmed leads</p>
+                        <span className="text-xl font-bold">{formatNumber(platformCount)}</span>
+                        <p className="text-[9px] text-[#94A3B8]/60">Platform reported leads</p>
                       </div>
                       {hasData ? (
                         <div className="flex items-baseline gap-2">
                           <span className="text-sm font-semibold" style={{ color: ACCENT }}>
-                            CPL: {formatCurrency(confirmedCpl, currency)}
+                            CPL: {formatCurrency(platformCpl, currency)}
                           </span>
                         </div>
                       ) : (
@@ -879,11 +883,32 @@ export default function MinistryOverview() {
                           Target: {formatCurrency(lt.targetCplMin, currency)}–{formatCurrency(lt.targetCplMax, currency)}
                         </p>
                       )}
-                      {platformCount > 0 && (
-                        <p className="text-[9px] text-[#94A3B8]/40">
-                          Platform claimed: {formatNumber(platformCount)}
-                        </p>
-                      )}
+                      {/* Cross-check row — small, muted, never the headline.
+                          Renders the HubSpot count + the over-attribution
+                          ratio so the team can read "the platform says
+                          12, the CRM verified 4" at a glance without
+                          treating either as the source of truth. */}
+                      <div className="pt-1.5 mt-1 border-t border-white/[0.04]">
+                        {verified > 0 ? (
+                          <p className="text-[9px] text-emerald-400/70">
+                            CRM verified: {formatNumber(verified)}
+                            {platformCount > 0 && (
+                              <span className="text-[#94A3B8]/50 ml-1">
+                                ({Math.round((verified / platformCount) * 100)}% of platform)
+                              </span>
+                            )}
+                            {confirmedCpl > 0 && (
+                              <span className="text-[#94A3B8]/50 ml-1">
+                                · CRM CPL {formatCurrency(confirmedCpl, currency)}
+                              </span>
+                            )}
+                          </p>
+                        ) : (
+                          <p className="text-[9px] text-[#94A3B8]/30">
+                            CRM verified: — (no HubSpot match yet)
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </button>
                 );
