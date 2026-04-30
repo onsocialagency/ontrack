@@ -31,14 +31,23 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, Send, Trash2, Sparkles, Calendar, FileText } from "lucide-react";
 import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
 import { classifyPlatform } from "@/lib/windsor";
-import { reconcileByCampaign, getContactsByCampaign } from "@/lib/leadReconciliation";
+import {
+  reconcileByCampaign,
+  getContactsByCampaign,
+  categoriseLeadType,
+} from "@/lib/leadReconciliation";
 import { LEAD_TYPES, getLeadTypeFromCampaign, type LeadType } from "@/lib/ministry-config";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 
 /* ── Types ── */
 
-type ReportType = "weekly" | "monthly";
 type PlatformChoice = "meta" | "google" | "both";
+// "Paid attributed" = only HubSpot contacts that joined to a paid
+// Meta/Google campaign (the number we defend in WBR / MBR).
+// "All HubSpot"     = every contact in the period grouped by event-name
+// → product, including organic / direct. Useful for headline volume
+// reports where Daisy wants the bigger picture.
+type LeadSource = "paid" | "all";
 
 interface MetricToggles {
   actualVsTargetSpend: boolean;
@@ -48,12 +57,23 @@ interface MetricToggles {
   cpa: boolean;
   salesSequencing: boolean;
   narrative: boolean;
+  // New page-level metric strips Daisy asked for
+  spendByPlatform: boolean;     // Meta vs Google split as a strip card
+  // New per-lead-type column metrics
+  impressions: boolean;
+  clicks: boolean;
+  ctr: boolean;
+  cpc: boolean;
+  qualifiedLeads: boolean;      // qualified count + qualification rate
 }
 
 interface SavedReport {
   id: string;
   generatedAt: string; // ISO
-  reportType: ReportType;
+  // reportType field kept for backward-compat with previously saved
+  // localStorage entries; not surfaced in the UI any more (period
+  // comes from the global date range now).
+  reportType?: string;
   periodLabel: string;
   generatedBy: string;
   payload: ReportPayload;
@@ -63,22 +83,31 @@ interface ReportRow {
   leadType: LeadType;
   actualSpend: number;
   targetSpend: number; // midpoint of LEAD_TYPE.budget*
-  leads: number; // HubSpot verified
+  leads: number; // verified or all-HubSpot, depending on LeadSource
   plannedLeads: number; // midpoint of LEAD_TYPE.volume*
   cpl: number; // actualSpend / leads
   estCpl: number; // midpoint of LEAD_TYPE.targetCpl*
   customerCount: number; // manual
   cpa: number; // manual
+  // Per-lead-type Windsor metrics (sums across that product's campaigns)
+  impressions: number;
+  clicks: number;
+  ctr: number; // %
+  cpc: number; // £
+  qualified: number; // matched contacts marked qualified by hs_lead_status / lifecyclestage
+  qualificationRate: number; // %
 }
 
 interface ReportPayload {
-  reportType: ReportType;
   periodLabel: string;
   platform: PlatformChoice;
+  leadSource: LeadSource;
   metrics: MetricToggles;
   rows: ReportRow[];
   narrative: Record<string, string>; // keyed by lead type id
   sequencing: SequencingStats;
+  // Page-level platform-split totals for the optional summary strip
+  totals: { metaSpend: number; googleSpend: number; totalSpend: number };
 }
 
 interface SequencingStats {
@@ -125,14 +154,38 @@ function midpoint(min: number | null, max: number | null): number {
   return +(((min + max) / 2)).toFixed(2);
 }
 
+/** A contact looks "qualified" when HubSpot lead status has advanced past
+ *  NEW/OPEN, OR when lifecyclestage has reached MQL or beyond. Same
+ *  definition the Lead Generation tab uses — keep them in lock-step. */
+function isQualifiedLead(c: { lifecyclestage?: string | null; leadStatus?: string | null }): boolean {
+  const ls = (c.leadStatus ?? "").toUpperCase().trim();
+  const stage = (c.lifecyclestage ?? "").toLowerCase().trim();
+  if (ls && !["", "NEW", "OPEN", "UNATTEMPTED", "OPEN_DEAL"].includes(ls)) return true;
+  if (["marketingqualifiedlead", "salesqualifiedlead", "opportunity", "customer", "evangelist"].includes(stage)) return true;
+  return false;
+}
+
+/** Map a HubSpot conversion event name to one of the six product
+ *  lead-type ids. Falls through to null when the event doesn't map
+ *  cleanly — those contacts get bucketed into the leadType inferred
+ *  from their joined campaign instead, or skipped if neither is known. */
+function eventNameToProduct(eventName: string | null | undefined): string | null {
+  const t = categoriseLeadType(eventName ?? null);
+  if (t === "DayPass") return "day_pass";
+  // FacebookLead / EnquiryForm don't carry product hints; null sends us
+  // to the campaign-name fallback in the caller.
+  return null;
+}
+
 /** Build the per-lead-type rows from raw Windsor + HubSpot data. */
 function buildRows(
   windsor: WindsorRow[],
   contacts: HubSpotContact[],
   platform: PlatformChoice,
+  leadSource: LeadSource,
   selectedLeadTypeIds: Set<string>,
   manualOverrides: Record<string, { customerCount: number; cpa: number }>,
-): ReportRow[] {
+): { rows: ReportRow[]; totals: { metaSpend: number; googleSpend: number; totalSpend: number } } {
   // Filter by platform first.
   const filtered = windsor.filter((r) => {
     const p = classifyPlatform(r.source);
@@ -140,38 +193,116 @@ function buildRows(
     return p === platform;
   });
 
-  // Aggregate spend per lead type via campaign name → product matcher.
-  const spendByType = new Map<string, number>();
-  for (const lt of PRODUCT_LEAD_TYPES) spendByType.set(lt.id, 0);
+  // Per-product Windsor aggregates (spend / impressions / clicks).
+  type ProductAgg = { spend: number; impressions: number; clicks: number; linkClicks: number; metaImpressions: number };
+  const byType = new Map<string, ProductAgg>();
+  for (const lt of PRODUCT_LEAD_TYPES) byType.set(lt.id, { spend: 0, impressions: 0, clicks: 0, linkClicks: 0, metaImpressions: 0 });
+  let metaSpend = 0;
+  let googleSpend = 0;
   for (const r of filtered) {
     const lt = getLeadTypeFromCampaign(r.campaign);
-    spendByType.set(lt.id, (spendByType.get(lt.id) ?? 0) + (Number(r.spend) || 0));
+    if (lt.id === "general") continue;
+    const a = byType.get(lt.id)!;
+    a.spend += Number(r.spend) || 0;
+    a.impressions += Number(r.impressions) || 0;
+    a.clicks += Number(r.clicks) || 0;
+    a.linkClicks += Number(r.link_clicks) || 0;
+    if (classifyPlatform(r.source) === "meta") {
+      a.metaImpressions += Number(r.impressions) || 0;
+      metaSpend += Number(r.spend) || 0;
+    } else if (classifyPlatform(r.source) === "google") {
+      googleSpend += Number(r.spend) || 0;
+    }
   }
 
-  // Aggregate verified leads per lead type via reconciler — matched
-  // contacts on each campaign, grouped by the same product matcher.
-  const recon = reconcileByCampaign(contacts, filtered);
-  const verifiedByType = new Map<string, number>();
-  for (const lt of PRODUCT_LEAD_TYPES) verifiedByType.set(lt.id, 0);
-  for (const row of recon) {
-    const lt = getLeadTypeFromCampaign(row.campaignName);
-    verifiedByType.set(lt.id, (verifiedByType.get(lt.id) ?? 0) + (row.hubspotConfirmed ?? 0));
+  // Lead counts per product. Two paths depending on leadSource toggle:
+  //   - paid:  use reconcileByCampaign output (URL/event-id matched).
+  //   - all:   bucket every HubSpot contact in the period via event-name
+  //            (DayPass) with campaign-name fallback when matched, else
+  //            "general" (which we skip — it'd be unmapped anyway).
+  const leadsByType = new Map<string, number>();
+  const qualifiedByType = new Map<string, number>();
+  for (const lt of PRODUCT_LEAD_TYPES) {
+    leadsByType.set(lt.id, 0);
+    qualifiedByType.set(lt.id, 0);
   }
-  // Touch the per-campaign contact list so future per-lead-type narrative
-  // hooks have somewhere to plug in (tag-source breakdown, qualification,
-  // etc.) without rebuilding the join.
-  void getContactsByCampaign;
 
-  return PRODUCT_LEAD_TYPES
+  if (leadSource === "paid") {
+    const recon = reconcileByCampaign(contacts, filtered);
+    for (const row of recon) {
+      const lt = getLeadTypeFromCampaign(row.campaignName);
+      if (lt.id === "general") continue;
+      leadsByType.set(lt.id, (leadsByType.get(lt.id) ?? 0) + (row.hubspotConfirmed ?? 0));
+    }
+    // Qualified count requires the actual matched contact lists.
+    const contactsByCampaign = getContactsByCampaign(contacts, filtered);
+    for (const [key, list] of contactsByCampaign) {
+      // key is "platform::campaignId-or-name" — recover campaign name
+      // from the recon row that matches this key for the lead-type.
+      const reconRow = recon.find((r) => `${r.platform}::${r.campaignId ?? r.campaignName}` === key);
+      if (!reconRow) continue;
+      const lt = getLeadTypeFromCampaign(reconRow.campaignName);
+      if (lt.id === "general") continue;
+      const qualified = list.filter(isQualifiedLead).length;
+      qualifiedByType.set(lt.id, (qualifiedByType.get(lt.id) ?? 0) + qualified);
+    }
+  } else {
+    // All HubSpot contacts: bucket each by event-name first, then by
+    // campaign-name fallback when joined to a paid campaign, else skip.
+    const contactsByCampaign = getContactsByCampaign(contacts, filtered);
+    const matchedSet = new Set<HubSpotContact>();
+    for (const list of contactsByCampaign.values()) {
+      for (const c of list) matchedSet.add(c);
+    }
+    for (const c of contacts) {
+      // Prefer event-name → product (DayPass is the only direct hint).
+      const eventProduct = eventNameToProduct(c.recentConversionEventName ?? c.firstConversionEventName);
+      let productId = eventProduct;
+      if (!productId && matchedSet.has(c)) {
+        // Fall back to the campaign this contact joined to, if any.
+        for (const [key, list] of contactsByCampaign) {
+          if (!list.includes(c)) continue;
+          // key encodes "platform::campaignId-or-name" — pull the campaign
+          // name from the windsor rows since recon isn't computed here.
+          const platformMatch = key.split("::")[0];
+          const idOrName = key.split("::").slice(1).join("::");
+          const sample = filtered.find((r) =>
+            classifyPlatform(r.source) === platformMatch &&
+            (r.campaign_id === idOrName || r.campaign === idOrName),
+          );
+          if (sample) {
+            const lt = getLeadTypeFromCampaign(sample.campaign);
+            if (lt.id !== "general") productId = lt.id;
+          }
+          break;
+        }
+      }
+      if (!productId) continue;
+      leadsByType.set(productId, (leadsByType.get(productId) ?? 0) + 1);
+      if (isQualifiedLead(c)) {
+        qualifiedByType.set(productId, (qualifiedByType.get(productId) ?? 0) + 1);
+      }
+    }
+  }
+
+  const rows = PRODUCT_LEAD_TYPES
     .filter((lt) => selectedLeadTypeIds.has(lt.id))
     .map((lt) => {
-      const actualSpend = spendByType.get(lt.id) ?? 0;
-      const leads = verifiedByType.get(lt.id) ?? 0;
+      const a = byType.get(lt.id)!;
+      const actualSpend = a.spend;
+      const leads = leadsByType.get(lt.id) ?? 0;
+      const qualified = qualifiedByType.get(lt.id) ?? 0;
       const cpl = leads > 0 ? actualSpend / leads : 0;
       const targetSpend = midpoint(lt.budgetMin, lt.budgetMax);
       const plannedLeads = midpoint(lt.volumeMin, lt.volumeMax);
       const estCpl = midpoint(lt.targetCplMin, lt.targetCplMax);
       const override = manualOverrides[lt.id] ?? { customerCount: 0, cpa: 0 };
+      // Use Meta link-clicks when meaningful (matches Ads Manager's CTR).
+      // For mixed Meta+Google rows we can't tell — fall back to total clicks.
+      const ctrClicks = a.linkClicks > 0 ? a.linkClicks : a.clicks;
+      const ctr = a.impressions > 0 ? (ctrClicks / a.impressions) * 100 : 0;
+      const cpc = ctrClicks > 0 ? actualSpend / ctrClicks : 0;
+      const qualificationRate = leads > 0 ? (qualified / leads) * 100 : 0;
       return {
         leadType: lt,
         actualSpend,
@@ -182,8 +313,19 @@ function buildRows(
         estCpl,
         customerCount: override.customerCount,
         cpa: override.cpa,
+        impressions: a.impressions,
+        clicks: a.clicks,
+        ctr,
+        cpc,
+        qualified,
+        qualificationRate,
       };
     });
+
+  return {
+    rows,
+    totals: { metaSpend, googleSpend, totalSpend: metaSpend + googleSpend },
+  };
 }
 
 /** AI-style narrative suggestion. Heuristic-driven, no LLM call.
@@ -226,6 +368,12 @@ function toSlackText(payload: ReportPayload, currency: string): string {
   const lines: string[] = [];
   lines.push(`*Marketing — ${platformLabel(payload.platform)}*`);
   lines.push(`_${payload.periodLabel}_`);
+  lines.push(`Leads: ${payload.leadSource === "paid" ? "Paid attributed" : "All HubSpot"}`);
+  if (payload.metrics.spendByPlatform && payload.platform === "both") {
+    lines.push(
+      `Spend: *${formatCurrency(payload.totals.totalSpend, currency)}* — Meta ${formatCurrency(payload.totals.metaSpend, currency)} · Google ${formatCurrency(payload.totals.googleSpend, currency)}`,
+    );
+  }
   lines.push("");
   lines.push("*Performance*");
   lines.push("```");
@@ -241,6 +389,15 @@ function toSlackText(payload: ReportPayload, currency: string): string {
     );
   }
   lines.push("```");
+  if (payload.metrics.qualifiedLeads) {
+    lines.push("");
+    lines.push("*Qualified leads*");
+    for (const r of payload.rows) {
+      lines.push(
+        `• ${r.leadType.label}: ${r.qualified} / ${r.leads} (${r.leads > 0 ? r.qualificationRate.toFixed(0) : 0}%)`,
+      );
+    }
+  }
   if (payload.metrics.narrative) {
     lines.push("");
     lines.push("*Notes*");
@@ -281,9 +438,13 @@ export function MinistryReportBuilder({
   currency,
   defaultPeriodLabel,
 }: MinistryReportBuilderProps) {
-  /* ── Controls state ── */
-  const [reportType, setReportType] = useState<ReportType>("weekly");
+  /* ── Controls state ──
+     "Report type" toggle removed per Daisy — monthly reviews are done
+     manually so the type field added no real signal. Period now comes
+     entirely from the global date-range picker (passed in as
+     defaultPeriodLabel). */
   const [platform, setPlatform] = useState<PlatformChoice>("both");
+  const [leadSource, setLeadSource] = useState<LeadSource>("paid");
   const [selectedLeadTypeIds, setSelectedLeadTypeIds] = useState<Set<string>>(
     () => new Set(PRODUCT_LEAD_TYPES.map((lt) => lt.id)),
   );
@@ -295,6 +456,12 @@ export function MinistryReportBuilder({
     cpa: false,
     salesSequencing: false,
     narrative: true,
+    spendByPlatform: true,
+    impressions: false,
+    clicks: false,
+    ctr: false,
+    cpc: false,
+    qualifiedLeads: false,
   });
 
   /* ── Manual overrides for customer count + CPA per lead type ── */
@@ -314,8 +481,10 @@ export function MinistryReportBuilder({
     enrolled: 0, opened: 0, clicked: 0, replied: 0, meetings: 0,
   });
 
-  /* ── Slack channel target (text input, not a connector) ── */
-  const [slackChannel, setSlackChannel] = useState("");
+  /* ── Slack channel target — defaults to The Ministry's internal
+        channel so the team don't have to remember the name each time.
+        Free-text override still possible. */
+  const [slackChannel, setSlackChannel] = useState("#ministry-slack");
 
   /* ── Generated report payload (rendered when present) ── */
   const [generated, setGenerated] = useState<ReportPayload | null>(null);
@@ -325,10 +494,12 @@ export function MinistryReportBuilder({
   useEffect(() => { setHistory(loadHistory()); }, []);
 
   /* ── Derived rows for the live preview ── */
-  const liveRows = useMemo(
-    () => buildRows(windsorData ?? [], hubspotData ?? [], platform, selectedLeadTypeIds, manualOverrides),
-    [windsorData, hubspotData, platform, selectedLeadTypeIds, manualOverrides],
+  const liveBuild = useMemo(
+    () => buildRows(windsorData ?? [], hubspotData ?? [], platform, leadSource, selectedLeadTypeIds, manualOverrides),
+    [windsorData, hubspotData, platform, leadSource, selectedLeadTypeIds, manualOverrides],
   );
+  const liveRows = liveBuild.rows;
+  const liveTotals = liveBuild.totals;
 
   /* ── Generate report — locks in the current state into a payload that
         the preview / export buttons render. Auto-fills empty narrative
@@ -340,31 +511,24 @@ export function MinistryReportBuilder({
         narrative[r.leadType.id]?.trim() || suggestNarrative(r, currency);
     }
     setNarrative(filledNarrative);
-    setGenerated({
-      reportType,
+    const payload: ReportPayload = {
       periodLabel: defaultPeriodLabel,
       platform,
+      leadSource,
       metrics,
       rows: liveRows,
       narrative: filledNarrative,
       sequencing,
-    });
+      totals: liveTotals,
+    };
+    setGenerated(payload);
     // Push to history
     const entry: SavedReport = {
       id: Date.now().toString(36),
       generatedAt: new Date().toISOString(),
-      reportType,
       periodLabel: defaultPeriodLabel,
       generatedBy: typeof window !== "undefined" ? window.localStorage.getItem("user-email") || "OnSocial team" : "OnSocial team",
-      payload: {
-        reportType,
-        periodLabel: defaultPeriodLabel,
-        platform,
-        metrics,
-        rows: liveRows,
-        narrative: filledNarrative,
-        sequencing,
-      },
+      payload,
     };
     const next = [entry, ...history].slice(0, MAX_HISTORY);
     setHistory(next);
@@ -413,18 +577,15 @@ export function MinistryReportBuilder({
           <h2 className="text-sm font-semibold text-white">Build a report</h2>
         </header>
 
-        {/* Period + Platform + Type */}
+        {/* Period + Platform + Lead source */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <div>
-            <Label>Report type</Label>
-            <PillGroup
-              options={[
-                { id: "weekly", label: "Weekly Update" },
-                { id: "monthly", label: "Monthly Review" },
-              ]}
-              value={reportType}
-              onChange={(v) => setReportType(v as ReportType)}
-            />
+            <Label>Period</Label>
+            <p className="text-xs text-white bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 flex items-center gap-2">
+              <Calendar size={12} className="text-[#94A3B8]" />
+              {defaultPeriodLabel}
+            </p>
+            <p className="text-[10px] text-[#64748B] mt-1">Set via the global date picker.</p>
           </div>
           <div>
             <Label>Platform</Label>
@@ -439,17 +600,46 @@ export function MinistryReportBuilder({
             />
           </div>
           <div>
-            <Label>Period</Label>
-            <p className="text-xs text-white bg-white/[0.04] border border-white/[0.06] rounded-lg px-3 py-2 flex items-center gap-2">
-              <Calendar size={12} className="text-[#94A3B8]" />
-              {defaultPeriodLabel}
+            <Label>Lead source</Label>
+            <PillGroup
+              options={[
+                { id: "paid", label: "Paid attributed" },
+                { id: "all", label: "All HubSpot" },
+              ]}
+              value={leadSource}
+              onChange={(v) => setLeadSource(v as LeadSource)}
+            />
+            <p className="text-[10px] text-[#64748B] mt-1">
+              {leadSource === "paid"
+                ? "Only contacts joined to a paid campaign (the number we defend)."
+                : "Every HubSpot contact in the period, including organic + direct."}
             </p>
           </div>
         </div>
 
         {/* Lead types */}
         <div>
-          <Label>Lead types to include</Label>
+          <div className="flex items-center justify-between mb-1.5">
+            <Label>Lead types to include</Label>
+            {/* All / None quick-select. Helpful when Daisy wants a
+                single-product report — toggle All off then check just
+                the one she's reporting on. */}
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setSelectedLeadTypeIds(new Set(PRODUCT_LEAD_TYPES.map((lt) => lt.id)))}
+                className="text-[10px] uppercase tracking-wider font-semibold text-[#C8A96E] hover:text-white transition-colors"
+              >
+                All
+              </button>
+              <span className="text-[10px] text-[#475569]">/</span>
+              <button
+                onClick={() => setSelectedLeadTypeIds(new Set())}
+                className="text-[10px] uppercase tracking-wider font-semibold text-[#94A3B8] hover:text-white transition-colors"
+              >
+                None
+              </button>
+            </div>
+          </div>
           <div className="flex flex-wrap gap-2">
             {PRODUCT_LEAD_TYPES.map((lt) => {
               const checked = selectedLeadTypeIds.has(lt.id);
@@ -475,11 +665,19 @@ export function MinistryReportBuilder({
               );
             })}
           </div>
+          <p className="text-[10px] text-[#64748B] mt-1.5">
+            General Enquiry is excluded — it's a catch-all bucket for unmapped
+            contacts, not a product. To see those, switch Lead source to
+            &quot;All HubSpot&quot;.
+          </p>
         </div>
 
-        {/* Metrics */}
+        {/* Metrics — grouped into "performance vs plan" (the spec
+            originals) and "extra metrics" (the new ones Daisy asked for).
+            Visual separation keeps the long checkbox list readable. */}
         <div>
           <Label>Metrics to include</Label>
+          <p className="text-[10px] uppercase tracking-wider text-[#94A3B8]/60 font-semibold mt-0.5 mb-1">Performance vs plan</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
             <Checkbox label="Actual vs Target Spend" value={metrics.actualVsTargetSpend} onChange={(v) => setMetrics((m) => ({ ...m, actualVsTargetSpend: v }))} />
             <Checkbox label="Leads vs Planned" value={metrics.leadsVsPlanned} onChange={(v) => setMetrics((m) => ({ ...m, leadsVsPlanned: v }))} />
@@ -488,6 +686,15 @@ export function MinistryReportBuilder({
             <Checkbox label="CPA (manual)" value={metrics.cpa} onChange={(v) => setMetrics((m) => ({ ...m, cpa: v }))} />
             <Checkbox label="Sales sequencing stats" value={metrics.salesSequencing} onChange={(v) => setMetrics((m) => ({ ...m, salesSequencing: v }))} />
             <Checkbox label="Narrative notes" value={metrics.narrative} onChange={(v) => setMetrics((m) => ({ ...m, narrative: v }))} />
+          </div>
+          <p className="text-[10px] uppercase tracking-wider text-[#94A3B8]/60 font-semibold mt-3 mb-1">Extra metrics</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            <Checkbox label="Spend split by platform" value={metrics.spendByPlatform} onChange={(v) => setMetrics((m) => ({ ...m, spendByPlatform: v }))} />
+            <Checkbox label="Impressions" value={metrics.impressions} onChange={(v) => setMetrics((m) => ({ ...m, impressions: v }))} />
+            <Checkbox label="Clicks" value={metrics.clicks} onChange={(v) => setMetrics((m) => ({ ...m, clicks: v }))} />
+            <Checkbox label="CTR" value={metrics.ctr} onChange={(v) => setMetrics((m) => ({ ...m, ctr: v }))} />
+            <Checkbox label="CPC" value={metrics.cpc} onChange={(v) => setMetrics((m) => ({ ...m, cpc: v }))} />
+            <Checkbox label="Qualified leads + rate" value={metrics.qualifiedLeads} onChange={(v) => setMetrics((m) => ({ ...m, qualifiedLeads: v }))} />
           </div>
         </div>
 
@@ -543,16 +750,28 @@ export function MinistryReportBuilder({
           </div>
         )}
 
-        <div className="flex justify-end pt-2 border-t border-white/[0.04]">
-          <button
-            onClick={handleGenerate}
-            disabled={selectedLeadTypeIds.size === 0}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-500/90 hover:bg-emerald-500 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            <Sparkles size={14} />
-            Generate Report
-          </button>
+      </section>
+
+      {/* Generate Report — full-width row beneath the controls so it
+          reads like a clear "now do it" step in the flow rather than a
+          button hidden in the bottom-right of a panel. */}
+      <section className="ministry-report-controls bg-emerald-500/5 border border-emerald-500/30 rounded-xl sm:rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-white">Ready to generate?</p>
+          <p className="text-[11px] text-[#94A3B8] mt-0.5">
+            {selectedLeadTypeIds.size === 0
+              ? "Pick at least one lead type to include."
+              : `${selectedLeadTypeIds.size} of ${PRODUCT_LEAD_TYPES.length} lead types selected · ${platformLabel(platform)} · ${leadSource === "paid" ? "Paid attributed" : "All HubSpot"}`}
+          </p>
         </div>
+        <button
+          onClick={handleGenerate}
+          disabled={selectedLeadTypeIds.size === 0}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          <Sparkles size={14} />
+          Generate Report
+        </button>
       </section>
 
       {/* ── Preview ── */}
@@ -567,6 +786,37 @@ export function MinistryReportBuilder({
           </header>
 
           <div className="p-5 space-y-5">
+            {/* Spend split by platform — page-level summary strip, only
+                shown when both platforms are in scope and the metric is
+                ticked. Kept as a row of three numbers so it reads
+                cleanly in the printed PDF. */}
+            {metrics.spendByPlatform && generated.platform === "both" && (
+              <div className="bg-white/[0.02] border border-white/[0.04] rounded-lg p-3 grid grid-cols-3 gap-3">
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider text-[#94A3B8]">Total spend</p>
+                  <p className="text-lg font-bold text-white tabular-nums mt-0.5">{formatCurrency(generated.totals.totalSpend, currency)}</p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider text-blue-400">Meta</p>
+                  <p className="text-lg font-bold text-white tabular-nums mt-0.5">
+                    {formatCurrency(generated.totals.metaSpend, currency)}
+                    <span className="text-[10px] font-normal text-[#94A3B8] ml-1">
+                      ({generated.totals.totalSpend > 0 ? Math.round((generated.totals.metaSpend / generated.totals.totalSpend) * 100) : 0}%)
+                    </span>
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[9px] uppercase tracking-wider text-emerald-400">Google</p>
+                  <p className="text-lg font-bold text-white tabular-nums mt-0.5">
+                    {formatCurrency(generated.totals.googleSpend, currency)}
+                    <span className="text-[10px] font-normal text-[#94A3B8] ml-1">
+                      ({generated.totals.totalSpend > 0 ? Math.round((generated.totals.googleSpend / generated.totals.totalSpend) * 100) : 0}%)
+                    </span>
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Performance table */}
             <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[680px]">
@@ -579,10 +829,20 @@ export function MinistryReportBuilder({
                         <th className="text-right p-2">Target Spend</th>
                       </>
                     )}
+                    {metrics.impressions && <th className="text-right p-2">Impr.</th>}
+                    {metrics.clicks && <th className="text-right p-2">Clicks</th>}
+                    {metrics.ctr && <th className="text-right p-2">CTR</th>}
+                    {metrics.cpc && <th className="text-right p-2">CPC</th>}
                     {metrics.leadsVsPlanned && (
                       <>
                         <th className="text-right p-2">Leads</th>
                         <th className="text-right p-2">Planned</th>
+                      </>
+                    )}
+                    {metrics.qualifiedLeads && (
+                      <>
+                        <th className="text-right p-2">Qualified</th>
+                        <th className="text-right p-2">Qual. %</th>
                       </>
                     )}
                     {metrics.cplVsEstimated && (
@@ -605,10 +865,20 @@ export function MinistryReportBuilder({
                           <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.targetSpend > 0 ? formatCurrency(r.targetSpend, currency) : "—"}</td>
                         </>
                       )}
+                      {metrics.impressions && <td className="p-2 text-right tabular-nums">{r.impressions > 0 ? formatNumber(r.impressions) : "—"}</td>}
+                      {metrics.clicks && <td className="p-2 text-right tabular-nums">{r.clicks > 0 ? formatNumber(r.clicks) : "—"}</td>}
+                      {metrics.ctr && <td className="p-2 text-right tabular-nums">{r.impressions > 0 ? `${r.ctr.toFixed(2)}%` : "—"}</td>}
+                      {metrics.cpc && <td className="p-2 text-right tabular-nums">{r.cpc > 0 ? formatCurrency(r.cpc, currency) : "—"}</td>}
                       {metrics.leadsVsPlanned && (
                         <>
                           <td className="p-2 text-right tabular-nums text-emerald-400">{formatNumber(r.leads)}</td>
                           <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.plannedLeads > 0 ? formatNumber(r.plannedLeads) : "—"}</td>
+                        </>
+                      )}
+                      {metrics.qualifiedLeads && (
+                        <>
+                          <td className="p-2 text-right tabular-nums">{r.qualified > 0 ? formatNumber(r.qualified) : "—"}</td>
+                          <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.leads > 0 ? `${r.qualificationRate.toFixed(0)}%` : "—"}</td>
                         </>
                       )}
                       {metrics.cplVsEstimated && (
@@ -627,6 +897,13 @@ export function MinistryReportBuilder({
                   ))}
                 </tbody>
               </table>
+              {/* Lead-source caption — makes it explicit which counting
+                  rule is in force on the table the reader is looking at. */}
+              <p className="text-[10px] text-[#64748B] mt-2 italic">
+                Leads = {generated.leadSource === "paid"
+                  ? "HubSpot contacts joined to a paid campaign (paid-attributed only)"
+                  : "all HubSpot contacts in the period (paid + organic + direct)"}.
+              </p>
             </div>
 
             {/* Narrative */}
