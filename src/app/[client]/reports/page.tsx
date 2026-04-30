@@ -107,7 +107,7 @@ export default function ReportsPage() {
   const ctx = useClient();
   const clientOrNull = ctx?.clientConfig;
   const { locale: clientLocale, fullDate: fmtFullDate } = useLocale();
-  const { days, preset, dateFrom, dateTo } = useDateRange();
+  const { days, preset, dateFrom, dateTo, prevDateFrom, prevDateTo } = useDateRange();
   const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};
   const mockKpis = getClientKPIs(clientSlug, clientOrNull ?? undefined);
   const mockCampaigns = getClientCampaigns(clientSlug, undefined, clientOrNull ?? undefined);
@@ -128,6 +128,26 @@ export default function ReportsPage() {
     type: "hubspot",
     days,
     ...customDateProps,
+  });
+
+  // Previous-period datasets — same length window immediately preceding
+  // the current one. Drives the optional "vs previous period" comparison
+  // toggle in the Ministry report builder. Fetched unconditionally
+  // because the toggle is on a per-report basis; the cost of a second
+  // fetch is small and React Query / SWR caches it.
+  const { data: prevWindsorData } = useWindsor<WindsorRow[]>({
+    clientSlug,
+    type: "campaigns",
+    days,
+    dateFrom: prevDateFrom,
+    dateTo: prevDateTo,
+  });
+  const { data: prevHubspotData } = useWindsor<HubSpotContact[]>({
+    clientSlug,
+    type: "hubspot",
+    days,
+    dateFrom: prevDateFrom,
+    dateTo: prevDateTo,
   });
 
   const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
@@ -353,6 +373,9 @@ export default function ReportsPage() {
           <MinistryReportBuilder
             windsorData={windsorData ?? null}
             hubspotData={hubspotData ?? null}
+            prevWindsorData={prevWindsorData ?? null}
+            prevHubspotData={prevHubspotData ?? null}
+            prevPeriodLabel={prevDateFrom && prevDateTo ? `${fmtFullDate(new Date(prevDateFrom))} – ${fmtFullDate(new Date(prevDateTo))}` : undefined}
             currency={clientOrNull?.currency ?? "GBP"}
             defaultPeriodLabel={`${preset === "Custom" && dateFrom && dateTo ? `${fmtFullDate(new Date(dateFrom))} – ${fmtFullDate(new Date(dateTo))}` : `Last ${days} days`} (${clientLocale})`}
           />

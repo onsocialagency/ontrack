@@ -54,13 +54,13 @@ interface MetricToggles {
   actualVsTargetSpend: boolean;
   leadsVsPlanned: boolean;
   cplVsEstimated: boolean;
-  customerCount: boolean;
+  // CPA stays as an auto-derived metric (spend ÷ qualified leads).
+  // No manual override — Daisy: "no manual entries on Reports".
   cpa: boolean;
-  salesSequencing: boolean;
   narrative: boolean;
-  // New page-level metric strips Daisy asked for
+  // Page-level metric strip
   spendByPlatform: boolean;     // Meta vs Google split as a strip card
-  // New per-lead-type column metrics
+  // Per-lead-type column metrics
   impressions: boolean;
   clicks: boolean;
   ctr: boolean;
@@ -88,16 +88,11 @@ interface ReportRow {
   plannedLeads: number; // midpoint of LEAD_TYPE.volume*
   cpl: number; // actualSpend / leads
   estCpl: number; // midpoint of LEAD_TYPE.targetCpl*
-  // Customer count + CPA: optional manual overrides. Default to 0 /
-  // computed proxies when blank. Real "customer" data lives in the
-  // billing system (signed contracts / paid Day Passes) and isn't
-  // fetched through Windsor — so manual entry remains the ground truth.
-  // CPA falls back to spend ÷ qualified leads when no override given,
-  // since qualification is the closest signal we have to "real
-  // intent" without billing data wired in.
-  customerCount: number; // manual override; 0 = "no number entered"
-  cpa: number;           // manual override; 0 = use derivedCpa instead
-  derivedCpa: number;    // computed: actualSpend / qualified
+  // CPA is auto-derived only — no manual override anywhere in Reports.
+  // Spend ÷ qualified leads. Customers / billing-system data isn't
+  // wired in (and Daisy: "no manual entries on Reports") so this is
+  // the closest meaningful CPA we can compute.
+  cpa: number;
   // Per-lead-type Windsor metrics (sums across that product's campaigns)
   impressions: number;
   clicks: number;
@@ -113,19 +108,20 @@ interface ReportPayload {
   leadSource: LeadSource;
   metrics: MetricToggles;
   rows: ReportRow[];
+  // Parallel previous-period rows aligned by leadType.id when the user
+  // toggles "vs previous period". Same length and order as `rows`.
+  // Null when comparison is off.
+  prevRows: ReportRow[] | null;
+  prevPeriodLabel: string | null;
   narrative: Record<string, string>; // keyed by lead type id
-  sequencing: SequencingStats;
   // Page-level platform-split totals for the optional summary strip
   totals: { metaSpend: number; googleSpend: number; totalSpend: number };
+  prevTotals: { metaSpend: number; googleSpend: number; totalSpend: number } | null;
 }
 
-interface SequencingStats {
-  enrolled: number;
-  opened: number;
-  clicked: number;
-  replied: number;
-  meetings: number;
-}
+// Sales sequencing card removed entirely — required manual entry which
+// Daisy ruled out for Reports. Re-introduce when we wire a real
+// sequencing data source (Apollo / Outreach / HubSpot Sequences).
 
 /* ── Storage ── */
 
@@ -193,7 +189,6 @@ function buildRows(
   platform: PlatformChoice,
   leadSource: LeadSource,
   selectedLeadTypeIds: Set<string>,
-  manualOverrides: Record<string, { customerCount: number; cpa: number }>,
 ): { rows: ReportRow[]; totals: { metaSpend: number; googleSpend: number; totalSpend: number } } {
   // Filter by platform first.
   const filtered = windsor.filter((r) => {
@@ -305,17 +300,15 @@ function buildRows(
       const targetSpend = midpoint(lt.budgetMin, lt.budgetMax);
       const plannedLeads = midpoint(lt.volumeMin, lt.volumeMax);
       const estCpl = midpoint(lt.targetCplMin, lt.targetCplMax);
-      const override = manualOverrides[lt.id] ?? { customerCount: 0, cpa: 0 };
       // Use Meta link-clicks when meaningful (matches Ads Manager's CTR).
       // For mixed Meta+Google rows we can't tell — fall back to total clicks.
       const ctrClicks = a.linkClicks > 0 ? a.linkClicks : a.clicks;
       const ctr = a.impressions > 0 ? (ctrClicks / a.impressions) * 100 : 0;
       const cpc = ctrClicks > 0 ? actualSpend / ctrClicks : 0;
       const qualificationRate = leads > 0 ? (qualified / leads) * 100 : 0;
-      // Auto-derived CPA proxy when no manual override is given:
-      // spend ÷ qualified leads. Best signal we have without the
-      // billing-system customer count wired in.
-      const derivedCpa = qualified > 0 ? actualSpend / qualified : 0;
+      // CPA = spend ÷ qualified leads. Auto-derived only — no manual
+      // override (Daisy: "no manual entries on Reports").
+      const cpa = qualified > 0 ? actualSpend / qualified : 0;
       return {
         leadType: lt,
         actualSpend,
@@ -324,9 +317,7 @@ function buildRows(
         plannedLeads,
         cpl,
         estCpl,
-        customerCount: override.customerCount,
-        cpa: override.cpa,
-        derivedCpa,
+        cpa,
         impressions: a.impressions,
         clicks: a.clicks,
         ctr,
@@ -422,12 +413,6 @@ function toSlackText(payload: ReportPayload, currency: string): string {
       }
     }
   }
-  if (payload.metrics.salesSequencing) {
-    const s = payload.sequencing;
-    lines.push("");
-    lines.push("*Sales sequencing*");
-    lines.push(`Enrolled ${s.enrolled} · Opened ${s.opened} · Clicked ${s.clicked} · Replied ${s.replied} · Meetings ${s.meetings}`);
-  }
   return lines.join("\n");
 }
 
@@ -442,6 +427,13 @@ function platformLabel(p: PlatformChoice): string {
 export interface MinistryReportBuilderProps {
   windsorData: WindsorRow[] | null;
   hubspotData: HubSpotContact[] | null;
+  // Optional previous-period datasets — when supplied + compare is on,
+  // each row in the preview shows a vs-previous delta. The parent page
+  // is responsible for fetching the matching length-and-position
+  // window via useWindsor with shifted dateFrom/dateTo.
+  prevWindsorData?: WindsorRow[] | null;
+  prevHubspotData?: HubSpotContact[] | null;
+  prevPeriodLabel?: string;
   currency: string;
   defaultPeriodLabel: string;
 }
@@ -449,6 +441,9 @@ export interface MinistryReportBuilderProps {
 export function MinistryReportBuilder({
   windsorData,
   hubspotData,
+  prevWindsorData,
+  prevHubspotData,
+  prevPeriodLabel,
   currency,
   defaultPeriodLabel,
 }: MinistryReportBuilderProps) {
@@ -466,9 +461,7 @@ export function MinistryReportBuilder({
     actualVsTargetSpend: true,
     leadsVsPlanned: true,
     cplVsEstimated: true,
-    customerCount: false,
     cpa: false,
-    salesSequencing: false,
     narrative: true,
     spendByPlatform: true,
     impressions: false,
@@ -478,22 +471,16 @@ export function MinistryReportBuilder({
     qualifiedLeads: false,
   });
 
-  /* ── Manual overrides for customer count + CPA per lead type ── */
-  const [manualOverrides, setManualOverrides] = useState<Record<string, { customerCount: number; cpa: number }>>({});
-  const updateOverride = (id: string, field: "customerCount" | "cpa", value: number) => {
-    setManualOverrides((prev) => ({
-      ...prev,
-      [id]: { ...(prev[id] ?? { customerCount: 0, cpa: 0 }), [field]: value },
-    }));
-  };
+  /* ── vs previous-period comparison toggle.
+        When on, every numeric in the preview gets a small delta
+        indicator showing the period-on-period change (▲/▼ + %). The
+        previous period is the same length as the current one,
+        immediately preceding it (so a "Last 7 Days" view compares
+        against the seven days before that). ── */
+  const [compareEnabled, setCompareEnabled] = useState(false);
 
   /* ── Free-text narrative per lead type ── */
   const [narrative, setNarrative] = useState<Record<string, string>>({});
-
-  /* ── Sales sequencing manual inputs ── */
-  const [sequencing, setSequencing] = useState<SequencingStats>({
-    enrolled: 0, opened: 0, clicked: 0, replied: 0, meetings: 0,
-  });
 
   /* ── Slack channel target — defaults to The Ministry's internal
         channel so the team don't have to remember the name each time.
@@ -509,11 +496,17 @@ export function MinistryReportBuilder({
 
   /* ── Derived rows for the live preview ── */
   const liveBuild = useMemo(
-    () => buildRows(windsorData ?? [], hubspotData ?? [], platform, leadSource, selectedLeadTypeIds, manualOverrides),
-    [windsorData, hubspotData, platform, leadSource, selectedLeadTypeIds, manualOverrides],
+    () => buildRows(windsorData ?? [], hubspotData ?? [], platform, leadSource, selectedLeadTypeIds),
+    [windsorData, hubspotData, platform, leadSource, selectedLeadTypeIds],
   );
   const liveRows = liveBuild.rows;
   const liveTotals = liveBuild.totals;
+  const prevBuild = useMemo(
+    () => prevWindsorData && prevHubspotData
+      ? buildRows(prevWindsorData, prevHubspotData, platform, leadSource, selectedLeadTypeIds)
+      : null,
+    [prevWindsorData, prevHubspotData, platform, leadSource, selectedLeadTypeIds],
+  );
 
   /* ── Generate report — locks in the current state into a payload that
         the preview / export buttons render. Auto-fills empty narrative
@@ -531,9 +524,11 @@ export function MinistryReportBuilder({
       leadSource,
       metrics,
       rows: liveRows,
+      prevRows: compareEnabled && prevBuild ? prevBuild.rows : null,
+      prevPeriodLabel: compareEnabled && prevBuild ? (prevPeriodLabel ?? "Previous period") : null,
       narrative: filledNarrative,
-      sequencing,
       totals: liveTotals,
+      prevTotals: compareEnabled && prevBuild ? prevBuild.totals : null,
     };
     setGenerated(payload);
     // Push to history
@@ -701,9 +696,7 @@ export function MinistryReportBuilder({
             <Checkbox label="Actual vs Target Spend" value={metrics.actualVsTargetSpend} onChange={(v) => setMetrics((m) => ({ ...m, actualVsTargetSpend: v }))} />
             <Checkbox label="Leads vs Planned" value={metrics.leadsVsPlanned} onChange={(v) => setMetrics((m) => ({ ...m, leadsVsPlanned: v }))} />
             <Checkbox label="CPL vs Estimated" value={metrics.cplVsEstimated} onChange={(v) => setMetrics((m) => ({ ...m, cplVsEstimated: v }))} />
-            <Checkbox label="Customer count" value={metrics.customerCount} onChange={(v) => setMetrics((m) => ({ ...m, customerCount: v }))} />
-            <Checkbox label="CPA" value={metrics.cpa} onChange={(v) => setMetrics((m) => ({ ...m, cpa: v }))} />
-            <Checkbox label="Sales sequencing stats" value={metrics.salesSequencing} onChange={(v) => setMetrics((m) => ({ ...m, salesSequencing: v }))} />
+            <Checkbox label="CPA (auto-derived)" value={metrics.cpa} onChange={(v) => setMetrics((m) => ({ ...m, cpa: v }))} />
             <Checkbox label="Narrative notes" value={metrics.narrative} onChange={(v) => setMetrics((m) => ({ ...m, narrative: v }))} />
           </div>
           <p className="text-[10px] uppercase tracking-wider text-[#94A3B8]/60 font-semibold mt-3 mb-1">Extra metrics</p>
@@ -717,64 +710,24 @@ export function MinistryReportBuilder({
           </div>
         </div>
 
-        {/* Optional customer / CPA overrides per lead type — only
-            shown if either toggle is on. The CPA column auto-fills
-            with spend ÷ qualified-leads when no override is given;
-            the manual entry exists for the case where Daisy has the
-            real closed-customer count from the billing system. */}
-        {(metrics.customerCount || metrics.cpa) && liveRows.length > 0 && (
-          <div>
-            <Label>Customer + CPA overrides per lead type</Label>
-            <p className="text-[10px] text-[#64748B] -mt-1 mb-1.5">
-              Optional. Leave blank to use the auto-derived CPA
-              (spend ÷ qualified leads). Customer count comes from
-              your billing system, not HubSpot.
+        {/* Period-on-period comparison toggle. When on, the preview
+            renders a small ▲/▼ delta beneath each numeric so Daisy can
+            read week-on-week change at a glance. Disabled when the
+            parent doesn't supply the previous-period data. */}
+        <div className="border-t border-white/[0.04] pt-3">
+          <Checkbox
+            label={prevWindsorData
+              ? "Show vs previous period (week-on-week / period-on-period)"
+              : "Previous-period comparison unavailable for this date range"}
+            value={compareEnabled}
+            onChange={(v) => setCompareEnabled(v && !!prevWindsorData)}
+          />
+          {compareEnabled && prevPeriodLabel && (
+            <p className="text-[10px] text-[#64748B] mt-1">
+              Comparing against: {prevPeriodLabel}
             </p>
-            <div className="bg-white/[0.02] border border-white/[0.04] rounded-lg overflow-hidden">
-              <table className="w-full text-xs">
-                <thead className="bg-white/[0.02]">
-                  <tr className="text-[10px] uppercase tracking-wider text-[#94A3B8]">
-                    <th className="text-left p-2">Lead type</th>
-                    {metrics.customerCount && <th className="text-right p-2">Customers</th>}
-                    {metrics.cpa && <th className="text-right p-2">CPA</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {liveRows.map((r) => (
-                    <tr key={r.leadType.id} className="border-t border-white/[0.04]">
-                      <td className="p-2 text-white">{r.leadType.label}</td>
-                      {metrics.customerCount && (
-                        <td className="p-2 text-right">
-                          <NumberInput value={r.customerCount} onChange={(v) => updateOverride(r.leadType.id, "customerCount", v)} />
-                        </td>
-                      )}
-                      {metrics.cpa && (
-                        <td className="p-2 text-right">
-                          <NumberInput value={r.cpa} onChange={(v) => updateOverride(r.leadType.id, "cpa", v)} />
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* Sales sequencing — manual entry */}
-        {metrics.salesSequencing && (
-          <div>
-            <Label>Sales sequencing (manual entry)</Label>
-            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-              {(["enrolled", "opened", "clicked", "replied", "meetings"] as const).map((k) => (
-                <div key={k}>
-                  <p className="text-[10px] uppercase tracking-wider text-[#94A3B8] mb-1">{k}</p>
-                  <NumberInput value={sequencing[k]} onChange={(v) => setSequencing((s) => ({ ...s, [k]: v }))} />
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
 
       </section>
 
@@ -877,65 +830,79 @@ export function MinistryReportBuilder({
                         <th className="text-right p-2">Est. CPL</th>
                       </>
                     )}
-                    {metrics.customerCount && <th className="text-right p-2">Customers</th>}
                     {metrics.cpa && <th className="text-right p-2">CPA</th>}
                   </tr>
                 </thead>
                 <tbody>
-                  {generated.rows.map((r) => (
-                    <tr key={r.leadType.id} className="border-b border-white/[0.04]">
-                      <td className="p-2 text-white font-medium">{r.leadType.label}</td>
-                      {metrics.actualVsTargetSpend && (
-                        <>
-                          <td className="p-2 text-right tabular-nums">{formatCurrency(r.actualSpend, currency)}</td>
-                          <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.targetSpend > 0 ? formatCurrency(r.targetSpend, currency) : "—"}</td>
-                        </>
-                      )}
-                      {metrics.impressions && <td className="p-2 text-right tabular-nums">{r.impressions > 0 ? formatNumber(r.impressions) : "—"}</td>}
-                      {metrics.clicks && <td className="p-2 text-right tabular-nums">{r.clicks > 0 ? formatNumber(r.clicks) : "—"}</td>}
-                      {metrics.ctr && <td className="p-2 text-right tabular-nums">{r.impressions > 0 ? `${r.ctr.toFixed(2)}%` : "—"}</td>}
-                      {metrics.cpc && <td className="p-2 text-right tabular-nums">{r.cpc > 0 ? formatCurrency(r.cpc, currency) : "—"}</td>}
-                      {metrics.leadsVsPlanned && (
-                        <>
-                          <td className="p-2 text-right tabular-nums text-emerald-400">{formatNumber(r.leads)}</td>
-                          <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.plannedLeads > 0 ? formatNumber(r.plannedLeads) : "—"}</td>
-                        </>
-                      )}
-                      {metrics.qualifiedLeads && (
-                        <>
-                          <td className="p-2 text-right tabular-nums">{r.qualified > 0 ? formatNumber(r.qualified) : "—"}</td>
-                          <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.leads > 0 ? `${r.qualificationRate.toFixed(0)}%` : "—"}</td>
-                        </>
-                      )}
-                      {metrics.cplVsEstimated && (
-                        <>
-                          <td className="p-2 text-right tabular-nums">{r.cpl > 0 ? formatCurrency(r.cpl, currency) : "—"}</td>
-                          <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.estCpl > 0 ? formatCurrency(r.estCpl, currency) : "—"}</td>
-                        </>
-                      )}
-                      {metrics.customerCount && (
-                        <td className="p-2 text-right tabular-nums">{r.customerCount > 0 ? formatNumber(r.customerCount) : "—"}</td>
-                      )}
-                      {metrics.cpa && (() => {
-                        // Prefer the manual override; otherwise show the
-                        // auto-derived spend ÷ qualified value with a
-                        // small "(auto)" tag so the reader knows the
-                        // source of the number.
-                        const useManual = r.cpa > 0;
-                        const display = useManual ? r.cpa : r.derivedCpa;
-                        return (
+                  {generated.rows.map((r, i) => {
+                    // Pull the matched previous-period row for delta
+                    // computation. prevRows is parallel-aligned by index
+                    // because both buildRows passes use the same lead-
+                    // type filter + order.
+                    const prev = generated.prevRows?.[i];
+                    return (
+                      <tr key={r.leadType.id} className="border-b border-white/[0.04]">
+                        <td className="p-2 text-white font-medium">{r.leadType.label}</td>
+                        {metrics.actualVsTargetSpend && (
+                          <>
+                            <td className="p-2 text-right tabular-nums">
+                              <CurrencyCell current={r.actualSpend} prev={prev?.actualSpend} currency={currency} />
+                            </td>
+                            <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.targetSpend > 0 ? formatCurrency(r.targetSpend, currency) : "—"}</td>
+                          </>
+                        )}
+                        {metrics.impressions && (
                           <td className="p-2 text-right tabular-nums">
-                            {display > 0 ? (
-                              <>
-                                {formatCurrency(display, currency)}
-                                {!useManual && <span className="ml-1 text-[8px] uppercase text-[#94A3B8]/60">auto</span>}
-                              </>
-                            ) : "—"}
+                            <NumberCell current={r.impressions} prev={prev?.impressions} />
                           </td>
-                        );
-                      })()}
-                    </tr>
-                  ))}
+                        )}
+                        {metrics.clicks && (
+                          <td className="p-2 text-right tabular-nums">
+                            <NumberCell current={r.clicks} prev={prev?.clicks} />
+                          </td>
+                        )}
+                        {metrics.ctr && (
+                          <td className="p-2 text-right tabular-nums">
+                            <PctCell current={r.impressions > 0 ? r.ctr : null} prev={prev && prev.impressions > 0 ? prev.ctr : null} />
+                          </td>
+                        )}
+                        {metrics.cpc && (
+                          <td className="p-2 text-right tabular-nums">
+                            <CurrencyCell current={r.cpc} prev={prev?.cpc} currency={currency} invert />
+                          </td>
+                        )}
+                        {metrics.leadsVsPlanned && (
+                          <>
+                            <td className="p-2 text-right tabular-nums text-emerald-400">
+                              <NumberCell current={r.leads} prev={prev?.leads} />
+                            </td>
+                            <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.plannedLeads > 0 ? formatNumber(r.plannedLeads) : "—"}</td>
+                          </>
+                        )}
+                        {metrics.qualifiedLeads && (
+                          <>
+                            <td className="p-2 text-right tabular-nums">
+                              <NumberCell current={r.qualified} prev={prev?.qualified} />
+                            </td>
+                            <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.leads > 0 ? `${r.qualificationRate.toFixed(0)}%` : "—"}</td>
+                          </>
+                        )}
+                        {metrics.cplVsEstimated && (
+                          <>
+                            <td className="p-2 text-right tabular-nums">
+                              <CurrencyCell current={r.cpl} prev={prev?.cpl} currency={currency} invert />
+                            </td>
+                            <td className="p-2 text-right tabular-nums text-[#94A3B8]">{r.estCpl > 0 ? formatCurrency(r.estCpl, currency) : "—"}</td>
+                          </>
+                        )}
+                        {metrics.cpa && (
+                          <td className="p-2 text-right tabular-nums">
+                            <CurrencyCell current={r.cpa} prev={prev?.cpa} currency={currency} invert />
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
               {/* Lead-source caption — makes it explicit which counting
@@ -970,20 +937,9 @@ export function MinistryReportBuilder({
               </div>
             )}
 
-            {/* Sales sequencing */}
-            {metrics.salesSequencing && (
-              <div className="bg-white/[0.02] border border-white/[0.04] rounded-lg p-4">
-                <h4 className="text-[10px] uppercase tracking-wider text-[#94A3B8] font-semibold mb-2">Sales sequencing</h4>
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 text-center">
-                  {(["enrolled", "opened", "clicked", "replied", "meetings"] as const).map((k) => (
-                    <div key={k}>
-                      <p className="text-[9px] uppercase tracking-wider text-[#94A3B8]">{k}</p>
-                      <p className="text-base font-bold text-white tabular-nums">{formatNumber(generated.sequencing[k])}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Sales sequencing block removed — was manual entry only,
+                Daisy ruled out manual entries on Reports. Re-introduce
+                when we wire a real sequencing data source. */}
           </div>
 
           {/* Action buttons */}
@@ -1129,15 +1085,57 @@ function Checkbox({ label, value, onChange }: { label: string; value: boolean; o
   );
 }
 
-function NumberInput({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+/* NumberInput removed — Reports no longer accept any manual numeric
+   entries (customer count + manual CPA override + sales sequencing
+   were the only callers). */
+
+/* ── Delta cells ──
+   Render the current value with a small ▲/▼ percentage delta when the
+   parent supplies a previous-period value. `invert` flips the colour
+   semantics for cost metrics (CPL, CPC, CPA — where down is good). */
+
+function deltaText(current: number, prev: number): { pct: number; up: boolean } {
+  if (prev === 0) return { pct: 0, up: current > 0 };
+  const pct = ((current - prev) / prev) * 100;
+  return { pct, up: pct >= 0 };
+}
+
+function DeltaTag({ current, prev, invert }: { current: number; prev: number | undefined; invert?: boolean }) {
+  if (prev === undefined || (current === 0 && prev === 0)) return null;
+  const { pct, up } = deltaText(current, prev);
+  // For cost metrics (invert=true), down is green (good), up is red (bad).
+  const isGood = invert ? !up : up;
+  const colour = pct === 0 ? "text-[#64748B]" : isGood ? "text-emerald-400" : "text-red-400";
   return (
-    <input
-      type="number"
-      min={0}
-      value={value || ""}
-      onChange={(e) => onChange(Number(e.target.value) || 0)}
-      className="w-20 bg-white/[0.04] border border-white/[0.08] rounded px-2 py-1 text-xs text-white text-right focus:outline-none focus:border-white/[0.16]"
-      placeholder="0"
-    />
+    <span className={cn("block text-[9px] font-normal mt-0.5", colour)}>
+      {up ? "▲" : "▼"} {Math.abs(pct).toFixed(0)}%
+    </span>
+  );
+}
+
+function CurrencyCell({ current, prev, currency, invert }: { current: number; prev: number | undefined; currency: string; invert?: boolean }) {
+  return (
+    <>
+      {current > 0 ? formatCurrency(current, currency) : "—"}
+      <DeltaTag current={current} prev={prev} invert={invert} />
+    </>
+  );
+}
+
+function NumberCell({ current, prev }: { current: number; prev: number | undefined }) {
+  return (
+    <>
+      {current > 0 ? formatNumber(current) : "—"}
+      <DeltaTag current={current} prev={prev} />
+    </>
+  );
+}
+
+function PctCell({ current, prev }: { current: number | null; prev: number | null }) {
+  return (
+    <>
+      {current !== null ? `${current.toFixed(2)}%` : "—"}
+      <DeltaTag current={current ?? 0} prev={prev ?? undefined} />
+    </>
   );
 }

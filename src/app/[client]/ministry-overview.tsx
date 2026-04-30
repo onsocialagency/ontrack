@@ -227,6 +227,24 @@ export default function MinistryOverview() {
     ...(preset === "Custom" ? { dateFrom, dateTo } : {}),
   });
 
+  // Billing-period Windsor fetch — locked to the contract cycle
+  // (Ministry: 29th–28th) so the Budget Pacing card always reads
+  // month-to-date and never moves when the user changes the global
+  // date picker. Separate fetch from the main one because the user
+  // might be reading "Last 7 days" up top while pacing tracks the
+  // full billing cycle below.
+  const billingPeriodForFetch = useMemo(
+    () => getBillingPeriod(client?.billingStartDay ?? 1),
+    [client?.billingStartDay],
+  );
+  const { data: billingPeriodData } = useWindsor<WindsorRow[]>({
+    clientSlug,
+    type: "campaigns",
+    days, // ignored when dateFrom/dateTo are supplied; required by the hook signature
+    dateFrom: billingPeriodForFetch.startISO,
+    dateTo: billingPeriodForFetch.endISO,
+  });
+
   // Previous period Windsor data
   const { data: prevWindsorData } = useWindsor<WindsorRow[]>({
     clientSlug,
@@ -367,15 +385,24 @@ export default function MinistryOverview() {
   // contract renews on the 29th of each month, so a calendar-month split
   // misreports days-elapsed every cycle). getBillingPeriod() handles the
   // edge case where a 29-start month rolls into February.
-  const billingPeriod = getBillingPeriod(client?.billingStartDay ?? 1);
+  const billingPeriod = billingPeriodForFetch;
   const daysInMonth = billingPeriod.daysInPeriod;
   const dayOfMonth = billingPeriod.daysElapsed;
   const daysRemaining = billingPeriod.daysRemaining;
-  const dailyAvgSpend = dayOfMonth > 0 ? current.totalSpend / dayOfMonth : 0;
+  // Spend driving the Budget Pacing card and module — sourced from a
+  // dedicated billing-period Windsor query (above), so the number is
+  // always month-to-date and never moves when the global date picker
+  // changes. Previously this read off `current.totalSpend` which made
+  // pacing wobble whenever the user switched to "Last 7 days" up top.
+  const billingPeriodSpend = useMemo(() => {
+    const rows = billingPeriodData ?? [];
+    return rows.reduce((s, r) => s + (Number(r.spend) || 0), 0);
+  }, [billingPeriodData]);
+  const dailyAvgSpend = dayOfMonth > 0 ? billingPeriodSpend / dayOfMonth : 0;
   const projectedEOM = dailyAvgSpend * daysInMonth;
   // Allow >100% so the bar visually exceeds when overspending; the card
   // header still flips to amber via projectedOnTrack so the user notices.
-  const pacingPctRaw = MONTHLY_BUDGET > 0 ? (current.totalSpend / MONTHLY_BUDGET) * 100 : 0;
+  const pacingPctRaw = MONTHLY_BUDGET > 0 ? (billingPeriodSpend / MONTHLY_BUDGET) * 100 : 0;
   const pacingPct = Math.min(pacingPctRaw, 100);
   // "On track" = projected end-of-period spend will roughly hit (not blow
   // through) the budget. Treat ±10% as on track; outside that we're either
@@ -587,7 +614,7 @@ export default function MinistryOverview() {
             value={`${pacingPctRaw.toFixed(0)}%`}
             delta={0}
             icon={<TrendingDown size={12} />}
-            subLabel={`${formatCurrency(current.totalSpend, currency)} of ${formatCurrency(MONTHLY_BUDGET, currency)} · ${daysRemaining}d left`}
+            subLabel={`${formatCurrency(billingPeriodSpend, currency)} of ${formatCurrency(MONTHLY_BUDGET, currency)} · ${daysRemaining}d left`}
             tooltip={`Spend so far in the current billing period (${billingPeriod.label}) as a share of the monthly budget. Ministry's billing cycle starts on day ${client?.billingStartDay ?? 1} of each month.`}
             accentColor={projectedOnTrack ? "#22C55E" : pacingPctRaw > 110 ? "#EF4444" : "#F59E0B"}
           />
@@ -664,7 +691,7 @@ export default function MinistryOverview() {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-[#94A3B8] font-medium">
-                  {formatCurrency(current.totalSpend, currency)} of {formatCurrency(MONTHLY_BUDGET, currency)}
+                  {formatCurrency(billingPeriodSpend, currency)} of {formatCurrency(MONTHLY_BUDGET, currency)}
                 </span>
                 <span className="font-semibold" style={{ color: ACCENT }}>
                   {pacingPct.toFixed(0)}%
@@ -676,13 +703,16 @@ export default function MinistryOverview() {
                   style={{ width: `${pacingPct}%`, backgroundColor: ACCENT }}
                 />
               </div>
+              <p className="text-[10px] text-[#64748B]">
+                Billing period: {billingPeriod.label} — fixed to the contract cycle, not the global date range above.
+              </p>
             </div>
 
             {/* Stats grid */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-1">
               <div>
                 <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Current Spend</p>
-                <p className="text-sm font-semibold">{formatCurrency(current.totalSpend, currency)}</p>
+                <p className="text-sm font-semibold">{formatCurrency(billingPeriodSpend, currency)}</p>
               </div>
               <div>
                 <p className="text-[9px] text-[#94A3B8] uppercase tracking-wider">Projected EOM</p>
