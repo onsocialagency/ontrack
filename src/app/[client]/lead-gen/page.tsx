@@ -10,11 +10,38 @@ import { useClient } from "@/lib/client-context";
 import { useDateRange } from "@/lib/date-range-context";
 import { useWindsor } from "@/lib/use-windsor";
 import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
-import { reconcileByCampaign } from "@/lib/leadReconciliation";
+import { reconcileByCampaign, getContactsByCampaign } from "@/lib/leadReconciliation";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import { MetricCell } from "@/components/ui/metric-cell";
-import { Target, TrendingUp, Zap } from "lucide-react";
+import { Info, Target, TrendingUp, Zap } from "lucide-react";
 import { getCurrencyIcon } from "@/components/ui/currency-icon";
+import { LEAD_TYPES, getLeadTypeFromCampaign } from "@/lib/ministry-config";
+
+/* ── Helpers ── */
+
+/**
+ * Ministry's "qualified lead" definition (per Daisy):
+ *   "A qualified lead is one that has been contacted and confirmed as a
+ *    genuine enquiry."
+ *
+ * The closest HubSpot signal is `hs_lead_status` advancing past NEW/OPEN —
+ * those values mean the SDR hasn't actioned yet. Anything beyond
+ * (CONNECTED, IN_PROGRESS, ATTEMPTED_TO_CONTACT, BAD_TIMING, QUALIFIED,
+ * UNQUALIFIED, etc.) implies the lead has been touched. We also treat
+ * lifecyclestage advancement as a qualifier, since some teams set MQL
+ * directly without using lead status.
+ *
+ * Returns true when the contact looks qualified by either signal.
+ */
+function isQualifiedLead(c: { lifecyclestage: string | null; leadStatus: string | null }): boolean {
+  const ls = (c.leadStatus ?? "").toUpperCase().trim();
+  const stage = (c.lifecyclestage ?? "").toLowerCase().trim();
+  // Lead status advancement — anything other than NEW/OPEN/UNATTEMPTED counts.
+  if (ls && !["", "NEW", "OPEN", "UNATTEMPTED", "OPEN_DEAL"].includes(ls)) return true;
+  // Lifecycle advancement past raw "lead".
+  if (["marketingqualifiedlead", "salesqualifiedlead", "opportunity", "customer", "evangelist"].includes(stage)) return true;
+  return false;
+}
 
 /* ── Page ──
  *
@@ -69,6 +96,15 @@ export default function LeadGenPage() {
 
   const [kpiDetail, setKpiDetail] = useState<KpiDetailData | null>(null);
   const closeKpiDetail = useCallback(() => setKpiDetail(null), []);
+  const [leadTypeFilter, setLeadTypeFilter] = useState<string>("all");
+
+  // Per-campaign matched contacts — needed to count qualified leads in
+  // the table. Built once per render via the same join logic used in
+  // reconcileByCampaign so the two outputs stay aligned.
+  const contactsByCampaign = useMemo(
+    () => getContactsByCampaign(hubspotData ?? [], windsorData ?? []),
+    [hubspotData, windsorData],
+  );
 
   if (!client) return null;
 
@@ -109,15 +145,41 @@ export default function LeadGenPage() {
   // Funnel max count for width calculation
   const maxCount = funnel.length > 0 ? funnel[0].count : 1;
 
-  // Real campaign quality rows — sorted by spend desc, top 20.
-  const campaignQuality = campaignRecon
-    .slice()
-    .sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0))
-    .slice(0, 20);
+  // Real campaign quality rows — enriched with qualified-lead counts and
+  // an inferred lead type from the campaign name. Filtered by the lead-
+  // type dropdown then sorted by spend desc, top 30 to leave room for
+  // both Meta and Google campaigns when the filter is "all".
+  const campaignQuality = useMemo(() => {
+    const enriched = campaignRecon.map((cq) => {
+      const key = `${cq.platform}::${cq.campaignId ?? cq.campaignName}`;
+      const matched = contactsByCampaign.get(key) ?? [];
+      const qualified = matched.filter(isQualifiedLead).length;
+      const total = cq.hubspotConfirmed;
+      const qualificationRate = total > 0 ? (qualified / total) * 100 : 0;
+      const cplTotal = total > 0 ? cq.spend / total : 0;
+      const cplQualified = qualified > 0 ? cq.spend / qualified : 0;
+      const leadType = getLeadTypeFromCampaign(cq.campaignName);
+      return {
+        ...cq,
+        qualified,
+        qualificationRate,
+        cplTotal,
+        cplQualified,
+        leadTypeId: leadType.id,
+        leadTypeLabel: leadType.label,
+      };
+    });
+    const filtered = leadTypeFilter === "all"
+      ? enriched
+      : enriched.filter((r) => r.leadTypeId === leadTypeFilter);
+    return filtered.sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0)).slice(0, 30);
+  }, [campaignRecon, contactsByCampaign, leadTypeFilter]);
 
   return (
     <>
-      <Header title="Lead Generation" showAttribution />
+      {/* Attribution model selector removed for Ministry — lead-gen
+          clients don't need the post-click / post-view / blended toggle. */}
+      <Header title="Lead Generation" />
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
         {/* ── KPIs ── */}
@@ -213,85 +275,112 @@ export default function LeadGenPage() {
 
         {/* ── Lead Quality by Campaign ── */}
         <section className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl overflow-hidden">
-          <div className="p-4 border-b border-white/[0.08]">
-            <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider">
-              Lead Quality by Campaign
-            </h2>
-            <p className="text-[11px] text-[#64748B] mt-1">
-              Real spend + HubSpot-verified leads by campaign, for the selected date range.
-            </p>
+          <div className="p-4 border-b border-white/[0.08] space-y-3">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="text-sm font-semibold text-[#94A3B8] uppercase tracking-wider">
+                  Lead Quality by Campaign
+                </h2>
+                <p className="text-[11px] text-[#64748B] mt-1">
+                  Real spend + HubSpot-verified leads by campaign, for the selected date range.
+                </p>
+              </div>
+              {/* Lead-type filter — Daisy can drill into one product
+                  (Club, Day Pass, Private Office...) to assess quality
+                  per category. Filters the table client-side. */}
+              <select
+                value={leadTypeFilter}
+                onChange={(e) => setLeadTypeFilter(e.target.value)}
+                className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-1.5 text-[11px] font-semibold text-white focus:outline-none focus:border-white/[0.16]"
+              >
+                <option value="all">All lead types</option>
+                {LEAD_TYPES.filter((lt) => lt.id !== "general").map((lt) => (
+                  <option key={lt.id} value={lt.id}>{lt.label}</option>
+                ))}
+              </select>
+            </div>
+            {/* Qualification criteria note — required by spec so readers
+                know what "qualified" means before they trust the column. */}
+            <div className="flex items-start gap-2 text-[11px] text-[#94A3B8] bg-white/[0.02] border border-white/[0.04] rounded-lg p-2.5">
+              <Info size={13} className="text-[#C8A96E] flex-shrink-0 mt-0.5" />
+              <p className="leading-relaxed">
+                Lead qualification criteria defined by The Ministry. A
+                <strong className="text-white"> qualified lead</strong> is one
+                that has been contacted and confirmed as a genuine enquiry —
+                identified by HubSpot lead status advancing past NEW/OPEN, or
+                lifecycle stage reaching MQL or beyond.
+              </p>
+            </div>
           </div>
           <div className="hidden lg:block overflow-x-auto">
-            <table className="w-full text-sm min-w-[680px]">
+            <table className="w-full text-sm min-w-[920px]">
               <thead>
-                <tr className="border-b border-white/[0.08]">
-                  <th className="text-left p-3 text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">
-                    Campaign
-                  </th>
-                  <th className="text-right p-3 text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">
-                    Spend
-                  </th>
-                  <th className="text-right p-3 text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">
-                    Platform Leads
-                  </th>
-                  <th className="text-right p-3 text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">
-                    HS Verified
-                  </th>
-                  <th className="text-right p-3 text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">
-                    CPL
-                  </th>
-                  {/* TODO(Zack): restore "Qualified %" column once ratio is defined.
-                      Candidates: HubSpot verified ÷ platform reported, or SQL ÷ lead
-                      (needs lifecyclestage parsing). Hidden for now rather than show
-                      an undefined number. */}
+                <tr className="border-b border-white/[0.08] text-[10px]">
+                  <th className="text-left p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">Campaign</th>
+                  <th className="text-left p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">Platform</th>
+                  <th className="text-right p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">Spend</th>
+                  <th className="text-right p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">Total Leads</th>
+                  <th className="text-right p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">Qualified</th>
+                  <th className="text-right p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">Qual. Rate</th>
+                  <th className="text-right p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">CPL (Total)</th>
+                  <th className="text-right p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">CPL (Qual.)</th>
+                  <th className="text-left p-3 font-semibold text-[#94A3B8] uppercase tracking-wider">Lead Type</th>
                 </tr>
               </thead>
               <tbody>
                 {campaignQuality.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="p-6 text-center text-[#64748B] text-xs">
+                    <td colSpan={9} className="p-6 text-center text-[#64748B] text-xs">
                       No campaign data for this date range.
                     </td>
                   </tr>
                 ) : (
-                  campaignQuality.map((cq) => {
-                    const cpl = cq.hubspotConfirmed > 0 ? cq.spend / cq.hubspotConfirmed : 0;
-                    return (
-                      <tr
-                        key={cq.campaignName || cq.campaignId}
-                        className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
-                      >
-                        <td className="p-3 font-medium text-white truncate max-w-[280px]">
-                          {cq.campaignName || "(unknown)"}
-                        </td>
-                        <td className="p-3 text-right text-[#94A3B8]">
-                          {formatCurrency(cq.spend, client.currency)}
-                        </td>
-                        <td className="p-3 text-right text-[#94A3B8]">
-                          {formatNumber(cq.platformClaimed)}
-                        </td>
-                        <td className="p-3 text-right font-semibold text-white">
-                          {formatNumber(cq.hubspotConfirmed)}
-                        </td>
-                        <td className="p-3 text-right">
-                          <span
-                            className={cn(
-                              "font-semibold",
-                              cpl === 0
-                                ? "text-[#64748B]"
-                                : cpl <= 40
-                                  ? "text-[#22C55E]"
-                                  : cpl <= 80
-                                    ? "text-amber-400"
-                                    : "text-[#EF4444]",
-                            )}
-                          >
-                            {cpl > 0 ? formatCurrency(cpl, client.currency) : "—"}
-                          </span>
-                        </td>
-                      </tr>
-                    );
-                  })
+                  campaignQuality.map((cq) => (
+                    <tr
+                      key={cq.campaignName || cq.campaignId}
+                      className="border-b border-white/[0.04] hover:bg-white/[0.03] transition-colors"
+                    >
+                      <td className="p-3 font-medium text-white truncate max-w-[260px]" title={cq.campaignName}>
+                        {cq.campaignName || "(unknown)"}
+                      </td>
+                      <td className="p-3">
+                        <span className={cn(
+                          "px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase",
+                          cq.platform === "meta" ? "bg-blue-500/15 text-blue-400"
+                            : cq.platform === "google" ? "bg-emerald-500/15 text-emerald-400"
+                              : "bg-zinc-500/15 text-zinc-400",
+                        )}>
+                          {cq.platform}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right text-[#94A3B8] tabular-nums">
+                        {formatCurrency(cq.spend, client.currency)}
+                      </td>
+                      <td className="p-3 text-right font-semibold text-emerald-400 tabular-nums">
+                        {cq.hubspotConfirmed > 0 ? formatNumber(cq.hubspotConfirmed) : "—"}
+                      </td>
+                      <td className="p-3 text-right font-semibold text-white tabular-nums">
+                        {cq.qualified > 0 ? formatNumber(cq.qualified) : "—"}
+                      </td>
+                      <td className="p-3 text-right tabular-nums">
+                        <span className={cn(
+                          cq.hubspotConfirmed === 0 ? "text-[#64748B]"
+                            : cq.qualificationRate >= 50 ? "text-emerald-400"
+                              : cq.qualificationRate >= 25 ? "text-amber-400"
+                                : "text-red-400",
+                        )}>
+                          {cq.hubspotConfirmed > 0 ? `${cq.qualificationRate.toFixed(0)}%` : "—"}
+                        </span>
+                      </td>
+                      <td className="p-3 text-right tabular-nums">
+                        {cq.cplTotal > 0 ? formatCurrency(cq.cplTotal, client.currency) : "—"}
+                      </td>
+                      <td className="p-3 text-right tabular-nums">
+                        {cq.cplQualified > 0 ? formatCurrency(cq.cplQualified, client.currency) : "—"}
+                      </td>
+                      <td className="p-3 text-[#94A3B8]">{cq.leadTypeLabel}</td>
+                    </tr>
+                  ))
                 )}
               </tbody>
             </table>
@@ -304,25 +393,28 @@ export default function LeadGenPage() {
                 No campaign data for this date range.
               </p>
             ) : (
-              campaignQuality.map((cq) => {
-                const cpl = cq.hubspotConfirmed > 0 ? cq.spend / cq.hubspotConfirmed : 0;
-                return (
-                  <div
-                    key={cq.campaignName || cq.campaignId}
-                    className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
-                  >
-                    <span className="text-sm font-semibold text-white truncate block">
+              campaignQuality.map((cq) => (
+                <div
+                  key={cq.campaignName || cq.campaignId}
+                  className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold text-white truncate">
                       {cq.campaignName || "(unknown)"}
                     </span>
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/[0.04]">
-                      <MetricCell label="Spend" value={formatCurrency(cq.spend, client.currency)} emphasis />
-                      <MetricCell label="HS Verified" value={formatNumber(cq.hubspotConfirmed)} emphasis />
-                      <MetricCell label="Platform" value={formatNumber(cq.platformClaimed)} />
-                      <MetricCell label="CPL" value={cpl > 0 ? formatCurrency(cpl, client.currency) : "—"} />
-                    </div>
+                    <span className="text-[10px] text-[#94A3B8] uppercase">{cq.platform}</span>
                   </div>
-                );
-              })
+                  <p className="text-[10px] text-[#94A3B8]/70">{cq.leadTypeLabel}</p>
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-white/[0.04]">
+                    <MetricCell label="Spend" value={formatCurrency(cq.spend, client.currency)} emphasis />
+                    <MetricCell label="Total Leads" value={cq.hubspotConfirmed > 0 ? formatNumber(cq.hubspotConfirmed) : "—"} emphasis />
+                    <MetricCell label="Qualified" value={cq.qualified > 0 ? formatNumber(cq.qualified) : "—"} />
+                    <MetricCell label="Qual. Rate" value={cq.hubspotConfirmed > 0 ? `${cq.qualificationRate.toFixed(0)}%` : "—"} />
+                    <MetricCell label="CPL" value={cq.cplTotal > 0 ? formatCurrency(cq.cplTotal, client.currency) : "—"} />
+                    <MetricCell label="CPL (Qual.)" value={cq.cplQualified > 0 ? formatCurrency(cq.cplQualified, client.currency) : "—"} />
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </section>
