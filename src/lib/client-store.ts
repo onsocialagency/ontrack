@@ -44,6 +44,22 @@ export async function getClientBySlug(slug: string): Promise<Client | undefined>
 }
 
 /**
+ * Look up a client by either the slug or the optional loginUsername
+ * (e.g. an email address for the client contact). Case-insensitive on
+ * both. Used by the auth route so a client can log in with a friendly
+ * email instead of the technical slug.
+ */
+export async function getClientByLogin(login: string): Promise<Client | undefined> {
+  if (!login) return undefined;
+  const needle = login.toLowerCase().trim();
+  const all = await getAllClients();
+  return all.find((c) =>
+    c.slug.toLowerCase() === needle ||
+    (c.loginUsername && c.loginUsername.toLowerCase() === needle),
+  );
+}
+
+/**
  * Save the full client list to disk.
  */
 export async function saveAllClients(clientList: Client[]): Promise<void> {

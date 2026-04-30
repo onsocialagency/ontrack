@@ -42,6 +42,13 @@ export interface Client {
   primaryColor: string;
   secondaryColor: string;
   password: string;
+  /**
+   * Optional login username override. When set, the client can log in
+   * with this string (typically a contact email like
+   * "daisyp@theministry.com") in addition to their slug. Checked
+   * case-insensitively. Leave undefined to keep slug-based login only.
+   */
+  loginUsername?: string;
   windsorApiKey?: string;
   metaAccountIds: string[];
   googleCustomerIds: string[];

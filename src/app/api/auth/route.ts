@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClientBySlug } from "@/lib/client-store";
+import { getClientByLogin } from "@/lib/client-store";
 
 // Admin credentials
 const ADMIN_USERNAME = "admin";
@@ -46,9 +46,10 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
-    // Client login — username is the client slug
-    const slug = username;
-    const client = await getClientBySlug(slug);
+    // Client login — username can be the slug or the optional
+    // loginUsername (typically an email) configured on the client.
+    // Lookup is case-insensitive; password is exact-match.
+    const client = await getClientByLogin(username);
 
     if (!client || client.password !== password) {
       return NextResponse.json(
@@ -57,6 +58,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Always anchor the session on the canonical slug, regardless of
+    // which alias the user typed. Cookie + redirect both use the slug
+    // so /[client]/layout.tsx and /api/windsor see a stable identity.
+    const slug = client.slug;
     const response = NextResponse.json({
       success: true,
       redirect: `/${slug}`,
