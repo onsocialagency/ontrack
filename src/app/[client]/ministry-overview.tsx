@@ -227,12 +227,12 @@ export default function MinistryOverview() {
     ...(preset === "Custom" ? { dateFrom, dateTo } : {}),
   });
 
-  // Billing-period Windsor fetch — locked to the contract cycle
-  // (Ministry: 29th–28th) so the Budget Pacing card always reads
-  // month-to-date and never moves when the user changes the global
-  // date picker. Separate fetch from the main one because the user
-  // might be reading "Last 7 days" up top while pacing tracks the
-  // full billing cycle below.
+  // Billing-period Windsor fetch — locked to the calendar-month cycle
+  // (Ministry runs budgets monthly, 1st – last day) so the Budget Pacing
+  // card always reads month-to-date and never moves when the user
+  // changes the global date picker. Separate fetch from the main one
+  // because the user might be reading "Last 7 days" up top while pacing
+  // tracks the full month below.
   const billingPeriodForFetch = useMemo(
     () => getBillingPeriod(client?.billingStartDay ?? 1),
     [client?.billingStartDay],
@@ -382,9 +382,9 @@ export default function MinistryOverview() {
   }), [chartData]);
 
   // Budget pacing — driven by the contract billing period (Ministry's
-  // contract renews on the 29th of each month, so a calendar-month split
-  // misreports days-elapsed every cycle). getBillingPeriod() handles the
-  // edge case where a 29-start month rolls into February.
+  // budgets are reported monthly, 1st – last day, so days-elapsed
+  // tracks the calendar month). getBillingPeriod() with billingStartDay=1
+  // handles the variable-length-month case (28/29/30/31).
   const billingPeriod = billingPeriodForFetch;
   const daysInMonth = billingPeriod.daysInPeriod;
   const dayOfMonth = billingPeriod.daysElapsed;
@@ -542,7 +542,7 @@ export default function MinistryOverview() {
               3. CPL Confirmed — Spend ÷ HubSpot Confirmed; the efficiency
                  number that actually answers "are we doing a good job?"
               4. Budget Pacing — % of monthly budget used in the *contract*
-                 billing period (Ministry renews on the 29th, not the 1st)
+                 calendar-month cycle, 1st – last day)
             Sub-row directly below: Meta Spend / Google Spend so the client
             can see the platform split without opening another tab.
             Platform-Reported was removed from the strip — it lives as a
@@ -605,7 +605,7 @@ export default function MinistryOverview() {
               (v) => formatCurrency(v, currency),
             ))}
           />
-          {/* Budget Pacing — uses the contract billing period (29th–28th
+          {/* Budget Pacing — uses the calendar-month cycle (1st – last day
               for Ministry) so % used reflects the cycle we actually invoice
               against, not the calendar month. The deeper pacing module
               with daily-avg and projected-EOM lives below. */}
@@ -615,7 +615,7 @@ export default function MinistryOverview() {
             delta={0}
             icon={<TrendingDown size={12} />}
             subLabel={`${formatCurrency(billingPeriodSpend, currency)} of ${formatCurrency(MONTHLY_BUDGET, currency)} · ${daysRemaining}d left`}
-            tooltip={`Spend so far in the current billing period (${billingPeriod.label}) as a share of the monthly budget. Ministry's billing cycle starts on day ${client?.billingStartDay ?? 1} of each month.`}
+            tooltip={`Spend so far this calendar month (${billingPeriod.label}) as a share of the monthly budget. Always month-to-date — independent of the global date range above.`}
             accentColor={projectedOnTrack ? "#22C55E" : pacingPctRaw > 110 ? "#EF4444" : "#F59E0B"}
           />
         </div>
@@ -704,7 +704,7 @@ export default function MinistryOverview() {
                 />
               </div>
               <p className="text-[10px] text-[#64748B]">
-                Billing period: {billingPeriod.label} — fixed to the contract cycle, not the global date range above.
+                Calendar month: {billingPeriod.label} — fixed to month-to-date, not the global date range above.
               </p>
             </div>
 

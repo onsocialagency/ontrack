@@ -150,10 +150,10 @@ export default function ReportsPage() {
     dateTo: prevDateTo,
   });
 
-  // Billing-period spend (Ministry: 29th–28th cycle) — locked to the
-  // contract cycle so the Budget Pacing summary in the report doesn't
-  // shift when the user changes the global picker. Same pattern as
-  // Overview tab.
+  // Billing-period spend (Ministry: calendar month, 1st – last day) —
+  // locked to the cycle so the Budget Pacing summary in the report
+  // doesn't shift when the user changes the global picker. Same pattern
+  // as the Overview tab.
   const billingPeriod = useMemo(
     () => getBillingPeriod(clientOrNull?.billingStartDay ?? 1),
     [clientOrNull?.billingStartDay],

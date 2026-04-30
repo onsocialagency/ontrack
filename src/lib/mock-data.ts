@@ -255,7 +255,10 @@ const ministryClient: Client = {
   googleCustomerIds: ["771-197-5192"],
   locale: "en-GB",
   timezone: "Europe/London",
-  billingStartDay: 29, // Contract start Jan 29
+  // Daisy confirmed Ministry budgets are reported on a calendar-month
+  // basis, not the contract-renewal cycle. Switch billingStartDay from
+  // 29 to 1 so Budget Pacing reads "1st – 30th/31st of the month".
+  billingStartDay: 1,
 };
 
 export const clients: Client[] = [irgClient, dentClient, mosaicClient, bayaClient, laurastarClient, ministryClient];
