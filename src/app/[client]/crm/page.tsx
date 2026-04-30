@@ -107,9 +107,14 @@ export default function CrmReconciliationPage() {
 
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
 
-        {/* ── Top Four Cards — ordered by "hardness" of the evidence ── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
-          {/* Meta Reported */}
+        {/* ── Top Three Cards — ordered by "hardness" of evidence ──
+            Per Daisy's spec: Meta Claimed | Google Claimed | HubSpot
+            Verified. The previous 4-card layout had a "HubSpot Total"
+            soft-context card; that number now lives in the over-
+            attribution ratio strip below + the untagged banner so the
+            top row is purely "platform vs source-of-truth" comparison. */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
+          {/* Meta Claimed */}
           <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-1">
               <span className="w-2 h-2 rounded-full bg-blue-500" />
@@ -121,11 +126,11 @@ export default function CrmReconciliationPage() {
               {formatNumber(totals.meta)}
             </p>
             <p className="text-[10px] sm:text-xs text-[#94A3B8] mt-2">
-              Meta pixel — 7d click / 1d view
+              Platform reported · 7d click / 1d view
             </p>
           </div>
 
-          {/* Google Reported */}
+          {/* Google Claimed */}
           <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6">
             <div className="flex items-center gap-2 mb-1">
               <span className="w-2 h-2 rounded-full bg-emerald-500" />
@@ -137,11 +142,15 @@ export default function CrmReconciliationPage() {
               {formatNumber(totals.google)}
             </p>
             <p className="text-[10px] sm:text-xs text-[#94A3B8] mt-2">
-              Google Ads — 30d click
+              Platform reported · 30d click
             </p>
           </div>
 
-          {/* HARD number — Verified ad leads. The agency-facing headline. */}
+          {/* HubSpot Verified — the agency-defensible number. Paid-source
+              only by construction: reconcileLeads() puts a contact in the
+              "verified" bucket only when matched via GTM event ID, fbclid/
+              gclid, FB Lead Ads event, hsa_cam, or paid utm_medium +
+              utm_source. Organic / direct contacts never land here. */}
           <div
             className="rounded-xl sm:rounded-2xl p-4 sm:p-6 border-2"
             style={{ borderColor: MINISTRY_BRAND.accentColor, background: `${MINISTRY_BRAND.accentColor}12` }}
@@ -149,33 +158,82 @@ export default function CrmReconciliationPage() {
             <div className="flex items-center gap-2 mb-1">
               <span className="w-2 h-2 rounded-full" style={{ background: MINISTRY_BRAND.accentColor }} />
               <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider" style={{ color: MINISTRY_BRAND.accentColor }}>
-                Verified Ad Leads
+                HubSpot Verified
               </span>
             </div>
             <p className="text-3xl sm:text-4xl font-bold text-white mt-2">
               {formatNumber(reconciliation.totalAdVerified)}
             </p>
             <p className="text-[10px] sm:text-xs text-[#94A3B8] mt-2">
-              Cross-referenced to a live campaign via hsa_cam / utm_campaign, or FB Lead Ads form
-            </p>
-          </div>
-
-          {/* Soft — HubSpot total. Context, not a performance metric. */}
-          <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 opacity-80">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="w-2 h-2 rounded-full bg-[#94A3B8]" />
-              <span className="text-[10px] sm:text-xs font-medium text-[#94A3B8] uppercase tracking-wider">
-                HubSpot Total
-              </span>
-            </div>
-            <p className="text-3xl sm:text-4xl font-bold text-[#94A3B8] mt-2">
-              {formatNumber(reconciliation.totalHubSpotLeads)}
-            </p>
-            <p className="text-[10px] sm:text-xs text-[#94A3B8] mt-2">
-              All contacts — includes organic, direct, referral ({formatNumber(reconciliation.totalHeuristicPaid)} heuristic paid)
+              Paid-source contacts only · matched via hsa_cam, fbclid/gclid, FB Lead Ads, or paid UTMs
             </p>
           </div>
         </div>
+
+        {/* Over-attribution ratio — Meta + Google divided by HubSpot
+            Verified. Lights up amber when platforms claim >2x what the
+            CRM can prove. The number itself isn't bad — small ratios are
+            normal due to platform view-through windows — but >2x is the
+            agreed Ministry threshold for "platforms are over-counting". */}
+        {(() => {
+          const verified = reconciliation.totalAdVerified;
+          const claimed = totals.meta + totals.google;
+          const ratio = verified > 0 ? claimed / verified : 0;
+          const flagged = ratio > 2;
+          return (
+            <div className={cn(
+              "rounded-xl sm:rounded-2xl border p-3 sm:p-4 flex items-center justify-between gap-3 flex-wrap",
+              flagged
+                ? "bg-amber-500/10 border-amber-500/30"
+                : "bg-white/[0.04] border-white/[0.06]",
+            )}>
+              <div className="flex items-center gap-3">
+                <span className={cn(
+                  "text-[10px] uppercase tracking-wider font-semibold",
+                  flagged ? "text-amber-400" : "text-[#94A3B8]",
+                )}>
+                  Over-attribution ratio
+                </span>
+                <span className="text-xl font-bold tabular-nums text-white">
+                  {verified > 0 ? `${ratio.toFixed(1)}×` : "—"}
+                </span>
+                <span className="text-[11px] text-[#64748B]">
+                  {formatNumber(claimed)} claimed ÷ {formatNumber(verified)} verified
+                </span>
+              </div>
+              {flagged && (
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-semibold uppercase tracking-wider">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                  Above 2× threshold
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Untagged-leads warning — when more than 20% of HubSpot
+            contacts have no resolvable enquiry source (no event-name
+            match, no URL path match, no UTM campaign), surface an amber
+            banner. Tracked sources will under-count until this is fixed
+            in GTM / form configuration. */}
+        {reconciliation.untaggedRate > 0.2 && (
+          <div className="rounded-xl sm:rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 sm:p-4 flex items-start gap-3">
+            <Info size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-amber-400">
+                {Math.round(reconciliation.untaggedRate * 100)}% of HubSpot contacts have no source
+              </p>
+              <p className="text-[11px] text-amber-300/80 mt-0.5 leading-relaxed">
+                {formatNumber(reconciliation.enquiryTagSources.untagged)} of{" "}
+                {formatNumber(reconciliation.totalHubSpotLeads)} contacts couldn&apos;t
+                be tagged from the data layer, event name, landing URL, or UTM
+                campaign. Lead-type breakdowns and channel attribution will
+                under-count these. Check the GTM data-layer push on forms
+                where the enquiry_type field is missing.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ── Attribution Explanation Banner ── */}
         <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-5">
