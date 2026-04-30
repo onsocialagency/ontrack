@@ -855,7 +855,7 @@ export function MinistryReportBuilder({
             })}
           </div>
           <p className="text-[10px] text-[#64748B] mt-1.5">
-            General Enquiry is excluded — it's a catch-all bucket for unmapped
+            General Enquiry is excluded — it&apos;s a catch-all bucket for unmapped
             contacts, not a product. To see those, switch Lead source to
             &quot;All HubSpot&quot;.
           </p>

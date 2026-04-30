@@ -106,6 +106,39 @@ export default function LeadGenPage() {
     [hubspotData, windsorData],
   );
 
+  // Real campaign quality rows — enriched with qualified-lead counts and
+  // an inferred lead type from the campaign name. Filtered by the lead-
+  // type dropdown then sorted by spend desc, top 30 to leave room for
+  // both Meta and Google campaigns when the filter is "all".
+  //
+  // Hoisted above the early returns below so the rule-of-hooks lint
+  // stays happy — useMemo must always be called on every render.
+  const campaignQuality = useMemo(() => {
+    const enriched = campaignRecon.map((cq) => {
+      const key = `${cq.platform}::${cq.campaignId ?? cq.campaignName}`;
+      const matched = contactsByCampaign.get(key) ?? [];
+      const qualified = matched.filter(isQualifiedLead).length;
+      const total = cq.hubspotConfirmed;
+      const qualificationRate = total > 0 ? (qualified / total) * 100 : 0;
+      const cplTotal = total > 0 ? cq.spend / total : 0;
+      const cplQualified = qualified > 0 ? cq.spend / qualified : 0;
+      const leadType = getLeadTypeFromCampaign(cq.campaignName);
+      return {
+        ...cq,
+        qualified,
+        qualificationRate,
+        cplTotal,
+        cplQualified,
+        leadTypeId: leadType.id,
+        leadTypeLabel: leadType.label,
+      };
+    });
+    const filtered = leadTypeFilter === "all"
+      ? enriched
+      : enriched.filter((r) => r.leadTypeId === leadTypeFilter);
+    return filtered.sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0)).slice(0, 30);
+  }, [campaignRecon, contactsByCampaign, leadTypeFilter]);
+
   if (!client) return null;
 
   // Only render for lead_gen or hybrid clients
@@ -144,36 +177,6 @@ export default function LeadGenPage() {
 
   // Funnel max count for width calculation
   const maxCount = funnel.length > 0 ? funnel[0].count : 1;
-
-  // Real campaign quality rows — enriched with qualified-lead counts and
-  // an inferred lead type from the campaign name. Filtered by the lead-
-  // type dropdown then sorted by spend desc, top 30 to leave room for
-  // both Meta and Google campaigns when the filter is "all".
-  const campaignQuality = useMemo(() => {
-    const enriched = campaignRecon.map((cq) => {
-      const key = `${cq.platform}::${cq.campaignId ?? cq.campaignName}`;
-      const matched = contactsByCampaign.get(key) ?? [];
-      const qualified = matched.filter(isQualifiedLead).length;
-      const total = cq.hubspotConfirmed;
-      const qualificationRate = total > 0 ? (qualified / total) * 100 : 0;
-      const cplTotal = total > 0 ? cq.spend / total : 0;
-      const cplQualified = qualified > 0 ? cq.spend / qualified : 0;
-      const leadType = getLeadTypeFromCampaign(cq.campaignName);
-      return {
-        ...cq,
-        qualified,
-        qualificationRate,
-        cplTotal,
-        cplQualified,
-        leadTypeId: leadType.id,
-        leadTypeLabel: leadType.label,
-      };
-    });
-    const filtered = leadTypeFilter === "all"
-      ? enriched
-      : enriched.filter((r) => r.leadTypeId === leadTypeFilter);
-    return filtered.sort((a, b) => (b.spend ?? 0) - (a.spend ?? 0)).slice(0, 30);
-  }, [campaignRecon, contactsByCampaign, leadTypeFilter]);
 
   return (
     <>

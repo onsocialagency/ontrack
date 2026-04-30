@@ -102,13 +102,22 @@ interface SavedReport {
 
 /* ── Page ── */
 
+/**
+ * Top-level entry point. Branches by slug so each variant only pays
+ * for its own hooks. Without the split, an IRG render would call all
+ * the generic data-fetching hooks below before the early return,
+ * which trips React's rule-of-hooks lint at build time.
+ */
 export default function ReportsPage() {
   const { client: clientSlug } = useParams<{ client: string }>();
-  // IRG runs its own brand-aware report builder (29 Apr 2026 brief).
-  // Branch out before the rest of the generic data-fetching kicks in.
   if (clientSlug === "irg") {
     return <IrgReportBuilder />;
   }
+  return <GenericReportsPage />;
+}
+
+function GenericReportsPage() {
+  const { client: clientSlug } = useParams<{ client: string }>();
   const isIrg = clientSlug === "irg";
   const ctx = useClient();
   const clientOrNull = ctx?.clientConfig;
