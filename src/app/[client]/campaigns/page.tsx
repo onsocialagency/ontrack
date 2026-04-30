@@ -28,18 +28,13 @@ import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import type { HubSpotContact, WindsorRow } from "@/lib/windsor";
 import { classifyPlatform } from "@/lib/windsor";
-import {
-  reconcileByCampaign,
-  getContactsByCampaign,
-  categoriseLeadType,
-} from "@/lib/leadReconciliation";
+import { reconcileByCampaign } from "@/lib/leadReconciliation";
 import { formatCurrency, formatNumber, cn } from "@/lib/utils";
 import {
   LEAD_TYPES,
   getLeadTypeFromCampaign,
 } from "@/lib/ministry-config";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
-import { ChevronDown, ChevronRight } from "lucide-react";
 
 /* ── Types ── */
 
@@ -63,9 +58,6 @@ interface CampaignTableRow {
   blendedCpl: number | null; // null when 0 leads; renders "—"
   leadTypeId: string;
   leadTypeLabel: string;
-  // Per-event-name breakdown of HubSpot contacts joined to this campaign,
-  // shown in the expandable sub-row. Keys are categoriseLeadType buckets.
-  eventNameBreakdown: { facebookLead: number; dayPass: number; enquiryForm: number; unknown: number };
 }
 
 type SortKey =
@@ -112,7 +104,11 @@ export default function CampaignsPage() {
   const [leadTypeFilter, setLeadTypeFilter] = useState<string>("all");
   const [sortKey, setSortKey] = useState<SortKey>("spend");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  // Expansion sub-row removed: it bucketed contacts by HubSpot
+  // conversion event name (FB Lead Ads / Day Pass / Enquiry Form /
+  // Unknown) which read as a "product breakdown" given the labels —
+  // confusing on a campaign whose product is already known. The Lead
+  // Type column carries that signal; we don't need a second view.
 
   /* ── Aggregate rows ── */
 
@@ -163,16 +159,13 @@ export default function CampaignsPage() {
       aggs.set(key, a);
     }
 
-    // Window 2: HubSpot reconciliation — confirmed counts per campaign
-    // and the matched contact list (for the event-name breakdown in the
-    // expand panel).
+    // Window 2: HubSpot reconciliation — confirmed counts per campaign.
     const recon = reconcileByCampaign(contacts, windsor);
     const reconByKey = new Map<string, (typeof recon)[number]>();
     for (const r of recon) {
       const k = `${r.platform}::${r.campaignId ?? r.campaignName}`;
       reconByKey.set(k, r);
     }
-    const contactsByCampaign = getContactsByCampaign(contacts, windsor);
 
     const result: CampaignTableRow[] = [];
     for (const a of aggs.values()) {
@@ -183,21 +176,6 @@ export default function CampaignsPage() {
       // Derive product type from the campaign name. Most Ministry
       // campaigns map cleanly via the LEAD_TYPE_PATTERNS list.
       const lt = getLeadTypeFromCampaign(a.campaignName);
-
-      // Bucket the matched contacts by event name so the user can see
-      // which form drove the leads (FB Lead Ads vs website Enquiry Form
-      // vs Day Pass vs Unknown). For most single-product campaigns this
-      // is more useful than splitting by product, since the product is
-      // already implied by the campaign name.
-      const matched = contactsByCampaign.get(a.key) ?? [];
-      const breakdown = { facebookLead: 0, dayPass: 0, enquiryForm: 0, unknown: 0 };
-      for (const c of matched) {
-        const t = categoriseLeadType(c.recentConversionEventName ?? c.firstConversionEventName);
-        if (t === "FacebookLead") breakdown.facebookLead += 1;
-        else if (t === "DayPass") breakdown.dayPass += 1;
-        else if (t === "EnquiryForm") breakdown.enquiryForm += 1;
-        else breakdown.unknown += 1;
-      }
 
       // Use link_clicks for Meta CTR (Meta's own definition) so this
       // matches what the client sees in Ads Manager. Google rows fall
@@ -222,7 +200,6 @@ export default function CampaignsPage() {
         blendedCpl,
         leadTypeId: lt.id,
         leadTypeLabel: lt.label,
-        eventNameBreakdown: breakdown,
       });
     }
     return result;
@@ -288,7 +265,6 @@ export default function CampaignsPage() {
             <table className="w-full text-xs">
               <thead className="bg-white/[0.02] text-[10px] uppercase tracking-wider text-[#94A3B8]">
                 <tr>
-                  <th className="w-8" />
                   <SortHeader label="Platform" k="platform" sortKey={sortKey} sortDir={sortDir} setSort={(k) => toggle(k, sortKey, sortDir, setSortKey, setSortDir)} className="text-left" />
                   <SortHeader label="Campaign" k="campaignName" sortKey={sortKey} sortDir={sortDir} setSort={(k) => toggle(k, sortKey, sortDir, setSortKey, setSortDir)} className="text-left" />
                   <SortHeader label="Spend" k="spend" sortKey={sortKey} sortDir={sortDir} setSort={(k) => toggle(k, sortKey, sortDir, setSortKey, setSortDir)} className="text-right" />
@@ -306,23 +282,35 @@ export default function CampaignsPage() {
               <tbody>
                 {visibleRows.length === 0 && (
                   <tr>
-                    <td colSpan={13} className="p-6 text-center text-[#64748B]">
+                    <td colSpan={12} className="p-6 text-center text-[#64748B]">
                       {loading ? "Loading campaigns…" : "No campaigns match the current filters."}
                     </td>
                   </tr>
                 )}
-                {visibleRows.map((r) => {
-                  const expanded = expandedKey === r.key;
-                  return (
-                    <RowFragment
-                      key={r.key}
-                      r={r}
-                      expanded={expanded}
-                      onToggle={() => setExpandedKey(expanded ? null : r.key)}
-                      currency={currency}
-                    />
-                  );
-                })}
+                {visibleRows.map((r) => (
+                  <tr key={r.key} className="border-t border-white/[0.04] hover:bg-white/[0.02] transition-colors">
+                    <td className="px-2 py-2">
+                      <PlatformBadge platform={r.platform} />
+                    </td>
+                    <td className="px-2 py-2 text-white max-w-[260px] truncate" title={r.campaignName}>
+                      {r.campaignName}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatCurrency(r.spend, currency)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.impressions)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.clicks)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{r.ctr.toFixed(2)}%</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{formatCurrency(r.cpc, currency)}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{r.metaLeads > 0 ? formatNumber(r.metaLeads) : "—"}</td>
+                    <td className="px-2 py-2 text-right tabular-nums">{r.googleLeads > 0 ? formatNumber(r.googleLeads) : "—"}</td>
+                    <td className="px-2 py-2 text-right tabular-nums font-semibold text-emerald-400">
+                      {r.hubspotConfirmed > 0 ? formatNumber(r.hubspotConfirmed) : "—"}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {r.blendedCpl !== null ? formatCurrency(r.blendedCpl, currency) : "—"}
+                    </td>
+                    <td className="px-2 py-2 text-[#94A3B8]">{r.leadTypeLabel}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -448,93 +436,6 @@ function toggle(
     // the biggest spenders first; alphabetical columns default to A→Z.
     setDir(["spend", "impressions", "clicks", "ctr", "cpc", "metaLeads", "googleLeads", "hubspotConfirmed", "blendedCpl"].includes(k) ? "desc" : "asc");
   }
-}
-
-function RowFragment({
-  r,
-  expanded,
-  onToggle,
-  currency,
-}: {
-  r: CampaignTableRow;
-  expanded: boolean;
-  onToggle: () => void;
-  currency: string;
-}) {
-  return (
-    <>
-      <tr
-        className="border-t border-white/[0.04] hover:bg-white/[0.02] transition-colors cursor-pointer"
-        onClick={onToggle}
-      >
-        <td className="pl-3 pr-1 py-2 text-[#64748B]">
-          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        </td>
-        <td className="px-2 py-2">
-          <PlatformBadge platform={r.platform} />
-        </td>
-        <td className="px-2 py-2 text-white max-w-[260px] truncate" title={r.campaignName}>
-          {r.campaignName}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums">{formatCurrency(r.spend, currency)}</td>
-        <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.impressions)}</td>
-        <td className="px-2 py-2 text-right tabular-nums">{formatNumber(r.clicks)}</td>
-        <td className="px-2 py-2 text-right tabular-nums">{r.ctr.toFixed(2)}%</td>
-        <td className="px-2 py-2 text-right tabular-nums">{formatCurrency(r.cpc, currency)}</td>
-        <td className="px-2 py-2 text-right tabular-nums">{r.metaLeads > 0 ? formatNumber(r.metaLeads) : "—"}</td>
-        <td className="px-2 py-2 text-right tabular-nums">{r.googleLeads > 0 ? formatNumber(r.googleLeads) : "—"}</td>
-        <td className="px-2 py-2 text-right tabular-nums font-semibold text-emerald-400">
-          {r.hubspotConfirmed > 0 ? formatNumber(r.hubspotConfirmed) : "—"}
-        </td>
-        <td className="px-2 py-2 text-right tabular-nums">
-          {r.blendedCpl !== null ? formatCurrency(r.blendedCpl, currency) : "—"}
-        </td>
-        <td className="px-2 py-2 text-[#94A3B8]">{r.leadTypeLabel}</td>
-      </tr>
-      {expanded && (
-        <tr className="bg-white/[0.02] border-t border-white/[0.04]">
-          <td colSpan={13} className="px-6 py-3">
-            <div className="text-[11px] space-y-2">
-              <div className="text-[#94A3B8] font-semibold uppercase tracking-wider text-[10px]">
-                HubSpot lead source breakdown
-              </div>
-              {r.hubspotConfirmed === 0 ? (
-                <p className="text-[#64748B]">No HubSpot-confirmed leads to break down.</p>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <BreakdownStat label="FB Lead Ads form" value={r.eventNameBreakdown.facebookLead} total={r.hubspotConfirmed} />
-                  <BreakdownStat label="Day Pass booking" value={r.eventNameBreakdown.dayPass} total={r.hubspotConfirmed} />
-                  <BreakdownStat label="Website enquiry" value={r.eventNameBreakdown.enquiryForm} total={r.hubspotConfirmed} />
-                  <BreakdownStat label="Other / unknown" value={r.eventNameBreakdown.unknown} total={r.hubspotConfirmed} muted />
-                </div>
-              )}
-              <p className="text-[10px] text-[#64748B] pt-1">
-                Inferred lead type: <span className="text-[#94A3B8]">{r.leadTypeLabel}</span>
-                {" · "}
-                Bucket determined by HubSpot conversion event name
-                ({" "}
-                <code className="bg-white/[0.05] px-1 rounded">recent_conversion_event_name</code>
-                {" "}/ <code className="bg-white/[0.05] px-1 rounded">first_conversion_event_name</code>
-                ).
-              </p>
-            </div>
-          </td>
-        </tr>
-      )}
-    </>
-  );
-}
-
-function BreakdownStat({ label, value, total, muted }: { label: string; value: number; total: number; muted?: boolean }) {
-  const pct = total > 0 ? (value / total) * 100 : 0;
-  return (
-    <div>
-      <p className="text-[9px] uppercase tracking-wider text-[#94A3B8]/60">{label}</p>
-      <p className={cn("text-sm font-semibold mt-0.5", muted ? "text-[#94A3B8]" : "text-white")}>
-        {formatNumber(value)} <span className="text-[10px] font-normal text-[#64748B]">({pct.toFixed(0)}%)</span>
-      </p>
-    </div>
-  );
 }
 
 function PlatformBadge({ platform }: { platform: "meta" | "google" | "tiktok" | "other" }) {
