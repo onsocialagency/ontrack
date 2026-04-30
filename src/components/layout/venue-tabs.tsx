@@ -39,13 +39,13 @@ export function VenueTabs() {
             key={tab.id}
             onClick={() => setActiveVenue(tab.id)}
             className={cn(
-              "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-medium transition-all whitespace-nowrap",
+              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all whitespace-nowrap",
               isActive
-                ? "bg-[#1D9E75] text-white shadow-sm"
-                : "text-white/40 hover:text-white/80 hover:bg-white/[0.04] border border-transparent",
+                ? "bg-white/[0.12] text-white"
+                : "text-[#64748B] hover:text-[#94A3B8] hover:bg-white/[0.04]",
             )}
           >
-            {!isActive && tab.color && (
+            {tab.color && (
               <span
                 className="w-2 h-2 rounded-full flex-shrink-0"
                 style={{ backgroundColor: tab.color }}

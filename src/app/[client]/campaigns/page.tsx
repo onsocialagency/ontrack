@@ -22,6 +22,7 @@
 
 import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import IrgCampaignsView from "@/components/irg/IrgCampaignsView";
 import { Header } from "@/components/layout/header";
 import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
@@ -228,11 +229,13 @@ export default function CampaignsPage() {
     });
   }, [rows, platformFilter, leadTypeFilter, sortKey, sortDir]);
 
-  /* ── Non-lead-gen clients fall back to attribution ── */
+  /* ── IRG gets its own brand-aware view ── */
+  if (clientSlug === "irg") {
+    return <IrgCampaignsView />;
+  }
 
+  /* ── Other ecom clients fall back to attribution ── */
   if (client && client.type !== "lead_gen" && client.type !== "hybrid") {
-    // Imperative redirect — keeps the original behaviour for ecom clients
-    // who land here from a deep link.
     router.replace(`/${clientSlug}/attribution`);
     return null;
   }

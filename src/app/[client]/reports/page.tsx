@@ -11,6 +11,7 @@ import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
 import { sumConversions, rowConversions } from "@/lib/windsor";
 import { MinistryReportBuilder } from "@/components/reports/MinistryReportBuilder";
+import IrgReportBuilder from "@/components/irg/IrgReportBuilder";
 import { cn, getBillingPeriod } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
@@ -103,6 +104,11 @@ interface SavedReport {
 
 export default function ReportsPage() {
   const { client: clientSlug } = useParams<{ client: string }>();
+  // IRG runs its own brand-aware report builder (29 Apr 2026 brief).
+  // Branch out before the rest of the generic data-fetching kicks in.
+  if (clientSlug === "irg") {
+    return <IrgReportBuilder />;
+  }
   const isIrg = clientSlug === "irg";
   const ctx = useClient();
   const clientOrNull = ctx?.clientConfig;

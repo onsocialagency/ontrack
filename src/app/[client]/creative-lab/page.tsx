@@ -24,6 +24,7 @@ import { parseAdName, detectChannelRole } from "@/lib/creativeParser";
 
 // Components
 import { CreativeCard } from "@/components/creative-lab/CreativeCard";
+import IrgCreativeLabView from "@/components/irg/IrgCreativeLabView";
 import { CreativeDetailModal } from "@/components/creative-lab/CreativeDetailModal";
 import { AccountHealthStrip } from "@/components/creative-lab/AccountHealthStrip";
 import { FilterBar } from "@/components/creative-lab/FilterBar";
@@ -53,6 +54,12 @@ const ITEMS_PER_PAGE = 20;
 
 export default function CreativeLabPage() {
   const { client: clientSlug } = useParams<{ client: string }>();
+  // IRG runs a brand-aware Meta + TikTok-separate view per the
+  // 29 April 2026 brief. Branch out before the rest of the generic
+  // hook chain runs so we don't pay for fetches IRG doesn't need.
+  if (clientSlug === "irg") {
+    return <IrgCreativeLabView />;
+  }
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("search") || "";
   const { days, preset, dateFrom, dateTo } = useDateRange();
