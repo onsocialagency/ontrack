@@ -28,9 +28,13 @@
  */
 
 import { useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { useVenue } from "@/lib/venue-context";
+import { useDateRange } from "@/lib/date-range-context";
+import { useWindsor } from "@/lib/use-windsor";
+import type { WindsorRow } from "@/lib/windsor";
 import { cn } from "@/lib/utils";
 import { IRG_BRANDS } from "@/lib/irg-brands";
 import {
@@ -40,6 +44,7 @@ import {
   type IrgCreativePillar,
   type IrgAudienceSkew,
 } from "@/lib/irg-mock";
+import { aggregateCreatives } from "@/lib/irg-live";
 import { Sparkles, AlertTriangle, Music2 } from "lucide-react";
 
 const CARD_BG = "bg-white/[0.04]";const CARD_BORDER = "border-white/[0.06]";const ACCENT_GREEN = "#1D9E75";
@@ -56,8 +61,29 @@ function fmtNumber(v: number): string {
 }
 
 export default function IrgCreativeLabView() {
+  const { client: clientSlug } = useParams<{ client: string }>();
   const { activeVenue } = useVenue();
-  const all = useMemo(() => getIrgCreatives(), []);
+  const { days, preset, dateFrom, dateTo } = useDateRange();
+  const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};
+
+  // Live creatives feed — 1,519 ad-day rows for IRG. aggregateCreatives
+  // groups by ad_id, derives role/pillar/audience from name patterns,
+  // computes hook rate as video_p25 / video_plays, hold rate as
+  // video_p75 / video_p25, frequency as impression-weighted average.
+  const { data: liveData } = useWindsor<WindsorRow[]>({
+    clientSlug,
+    type: "creatives",
+    days,
+    ...customDateProps,
+  });
+
+  const all = useMemo<IrgCreativeRow[]>(() => {
+    if (liveData && liveData.length > 0) {
+      const live = aggregateCreatives(liveData);
+      if (live.length > 0) return live;
+    }
+    return getIrgCreatives();
+  }, [liveData]);
 
   const [roleFilter, setRoleFilter] = useState<"all" | IrgCreativeRole>("all");
   const [pillarFilter, setPillarFilter] = useState<"all" | IrgCreativePillar>("all");

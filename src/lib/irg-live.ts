@@ -38,6 +38,12 @@ import type {
   BrandGridRow,
   DailyPerfPoint,
   IrgCampaignRow,
+  IrgCreativeRow,
+  IrgCreativeRole,
+  IrgCreativePillar,
+  IrgAudienceSkew,
+  IrgReconSummary,
+  IrgEventRow,
 } from "./irg-mock";
 import { IRG_BRANDS } from "./irg-brands";
 
@@ -386,6 +392,349 @@ export function aggregateCampaigns(rows: WindsorRow[]): IrgCampaignRow[] {
         hotelRevenue: isHotel ? +a.revenue.toFixed(2) : 0,
         roas: a.spend > 0 && a.revenue > 0 ? +(a.revenue / a.spend).toFixed(2) : type === "Awareness" ? null : 0,
         cpa: a.conversions > 0 ? +(a.spend / a.conversions).toFixed(2) : null,
+      };
+    })
+    .sort((a, b) => b.spend - a.spend);
+}
+
+/* ── Creatives (Tab 4) ──
+ *
+ * The creatives endpoint returns row-per-(date, ad_id). We aggregate by
+ * ad_id, derive role/pillar/audience from name patterns, infer hook
+ * rate from video_p25 / video_plays (3-second proxy on Meta), and use
+ * the first non-empty thumbnail_url we see.
+ */
+
+interface RawCreative {
+  ad_id?: string;
+  ad_name?: string;
+  campaign?: string;
+  account_id?: string;
+  source?: string | null;
+  spend?: number;
+  impressions?: number;
+  clicks?: number;
+  conversions?: number;
+  revenue?: number;
+  frequency?: number;
+  thumbnail_url?: string;
+  video_plays?: number;
+  video_p25?: number;
+  video_p75?: number;
+  video_thruplay?: number;
+  link_clicks?: number;
+  adset?: string;
+}
+
+/** Derive an OnSocial creative role from the ad / campaign name. */
+function deriveRole(adName: string, campaignName: string): IrgCreativeRole {
+  const s = `${adName} ${campaignName}`.toLowerCase();
+  if (s.includes("retarget")) return "Retargeting";
+  if (s.includes("awareness") || s.includes("brand") || s.includes("alwayson") || s.includes("vibes")) return "Awareness";
+  return "Conversion";
+}
+
+/** Pillar — best-effort grouping from name patterns. */
+function derivePillar(adName: string, campaignName: string): IrgCreativePillar {
+  const s = `${adName} ${campaignName}`.toLowerCase();
+  if (s.includes("daypass") || s.includes("day-pass") || s.includes("pool")) return "Day-pass";
+  if (s.includes("hotel") || s.includes("staylist") || s.includes("ho_")) return "Hotel + events";
+  if (s.includes("artist") || s.includes("residency") || s.includes("lineup")) return "Artist hype";
+  if (s.includes("crowd") || s.includes("review") || s.includes("ugc") || s.includes("social")) return "Social proof";
+  return "Brand story";
+}
+
+/** Audience skew — read from `user_segment` if present, else default Mixed. */
+function deriveAudience(userSegment: string | undefined): IrgAudienceSkew {
+  if (!userSegment) return "Mixed";
+  const s = userSegment.toLowerCase();
+  if (s.includes("young") || s.includes("18") || s.includes("gen z")) return "Younger";
+  if (s.includes("older") || s.includes("35+") || s.includes("45+")) return "Older";
+  return "Mixed";
+}
+
+export function aggregateCreatives(rows: WindsorRow[]): IrgCreativeRow[] {
+  if (rows.length === 0) return [];
+
+  type Agg = {
+    adId: string;
+    adName: string;
+    brand: IrgBrandId | "UNKNOWN";
+    platform: "Meta" | "TikTok";
+    campaign: string;
+    role: IrgCreativeRole;
+    pillar: IrgCreativePillar;
+    audience: IrgAudienceSkew;
+    spend: number;
+    impressions: number;
+    clicks: number;
+    linkClicks: number;
+    conversions: number;
+    revenue: number;
+    videoPlays: number;
+    videoP25: number;
+    videoP75: number;
+    videoThruplay: number;
+    frequencyTimesImpressions: number;
+    metaImpressions: number;
+    thumbnail: string;
+  };
+
+  const map = new Map<string, Agg>();
+  for (const raw of rows as RawCreative[]) {
+    const platformId = classifyPlatform(raw.source ?? null);
+    if (platformId !== "meta" && platformId !== "tiktok") continue;
+    const adId = raw.ad_id || raw.ad_name || "(unknown)";
+    const cur = map.get(adId) ?? {
+      adId,
+      adName: raw.ad_name || raw.adset || adId,
+      brand: assignIrgBrand(raw.campaign || "", raw.account_id || ""),
+      platform: platformId === "meta" ? "Meta" : "TikTok",
+      campaign: raw.campaign || "",
+      role: deriveRole(raw.ad_name || "", raw.campaign || ""),
+      pillar: derivePillar(raw.ad_name || "", raw.campaign || ""),
+      audience: deriveAudience((raw as unknown as { user_segment?: string }).user_segment),
+      spend: 0, impressions: 0, clicks: 0, linkClicks: 0,
+      conversions: 0, revenue: 0,
+      videoPlays: 0, videoP25: 0, videoP75: 0, videoThruplay: 0,
+      frequencyTimesImpressions: 0, metaImpressions: 0,
+      thumbnail: raw.thumbnail_url || "",
+    };
+    cur.spend += num(raw.spend);
+    cur.impressions += num(raw.impressions);
+    cur.clicks += num(raw.clicks);
+    cur.linkClicks += num(raw.link_clicks);
+    cur.conversions += num(raw.conversions);
+    cur.revenue += num(raw.revenue);
+    cur.videoPlays += num(raw.video_plays);
+    cur.videoP25 += num(raw.video_p25);
+    cur.videoP75 += num(raw.video_p75);
+    cur.videoThruplay += num(raw.video_thruplay);
+    if (platformId === "meta") {
+      const imps = num(raw.impressions);
+      cur.metaImpressions += imps;
+      cur.frequencyTimesImpressions += num(raw.frequency) * imps;
+    }
+    if (!cur.thumbnail && raw.thumbnail_url) cur.thumbnail = raw.thumbnail_url;
+    map.set(adId, cur);
+  }
+
+  return Array.from(map.values())
+    .filter((a) => a.brand !== "UNKNOWN" && a.spend > 0)
+    .map((a): IrgCreativeRow => {
+      const ctrClicks = a.linkClicks > 0 ? a.linkClicks : a.clicks;
+      const ctr = a.impressions > 0 ? (ctrClicks / a.impressions) * 100 : 0;
+      const cpm = a.impressions > 0 ? (a.spend / a.impressions) * 1000 : 0;
+      const reach = a.metaImpressions > 0 && a.frequencyTimesImpressions > 0
+        // estimated reach = impressions / avg frequency
+        ? Math.round(a.metaImpressions / Math.max(1, a.frequencyTimesImpressions / a.metaImpressions))
+        : a.impressions;
+      const frequency = a.metaImpressions > 0 ? a.frequencyTimesImpressions / a.metaImpressions : 0;
+      // Hook rate proxy: video_p25 / video_plays (3-second equivalent on
+      // Meta). For TikTok this would be a 2-second metric; with no
+      // TikTok rows live yet this branch is unused.
+      const hookRate = a.videoPlays > 0 ? (a.videoP25 / a.videoPlays) * 100 : 0;
+      const holdRate = a.videoP25 > 0 ? (a.videoP75 / a.videoP25) * 100 : 0;
+      return {
+        id: a.adId,
+        name: a.adName,
+        brand: a.brand as IrgBrandId,
+        platform: a.platform,
+        role: a.role,
+        pillar: a.pillar,
+        audienceSkew: a.audience,
+        spend: +a.spend.toFixed(2),
+        reach,
+        cpm: +cpm.toFixed(2),
+        hookRate: +hookRate.toFixed(2),
+        holdRate: +holdRate.toFixed(2),
+        ctr: +ctr.toFixed(2),
+        fourVenuesSales: a.conversions,
+        eventsRevenue: +a.revenue.toFixed(2),
+        cpaPerCreative: a.role === "Awareness" ? null : (a.conversions > 0 ? +(a.spend / a.conversions).toFixed(2) : null),
+        roas: a.role === "Awareness" ? null : (a.spend > 0 && a.revenue > 0 ? +(a.revenue / a.spend).toFixed(2) : null),
+        frequency: +frequency.toFixed(1),
+        thumbnail: a.thumbnail,
+      };
+    })
+    .sort((a, b) => b.spend - a.spend);
+}
+
+/* ── Reconciliation (Tab 5) ──
+ *
+ * Combines two endpoints:
+ *   campaigns → platform-reported sales / revenue
+ *   ga4       → GA4 confirmed sales / revenue, with source/medium so
+ *               we can isolate paid traffic and treat that as
+ *               "Four Venues confirmed" (the source of truth).
+ *
+ * Without a hostname dimension exposed by Windsor's GA4 connector
+ * here, we can't split events vs hotel revenue from GA4 directly. The
+ * platform-reported figures are still split (Meta vs Google) so the
+ * over-attribution ratio is meaningful.
+ */
+
+interface Ga4Row {
+  source?: string;
+  medium?: string;
+  conversions?: number;
+  revenue?: number;
+}
+
+function isPaidGa4(r: Ga4Row): boolean {
+  const m = (r.medium ?? "").toLowerCase();
+  if (["cpc", "ppc", "paid", "paidsocial", "paidsearch", "paid-social", "paid-search"].includes(m)) return true;
+  return false;
+}
+
+export function aggregateReconciliation(
+  campaignRows: WindsorRow[],
+  ga4Rows: Ga4Row[],
+): IrgReconSummary {
+  // Platform-reported numbers from the campaigns feed, restricted to
+  // OnSocial brands (hotel is Up Hotel — not part of the recon).
+  const onSocial = (campaignRows ?? []).filter((r) => {
+    const b = assignIrgBrand(r.campaign || "", r.account_id || "");
+    return b !== "IR_HOTEL" && b !== "UNKNOWN";
+  });
+  let metaPlatformReported = 0;
+  let googlePlatformReported = 0;
+  let metaPlatformRevenue = 0;
+  let googlePlatformRevenue = 0;
+  for (const r of onSocial) {
+    const p = classifyPlatform(r.source);
+    if (p === "meta") {
+      metaPlatformReported += num(r.conversions);
+      metaPlatformRevenue += num(r.revenue);
+    } else if (p === "google") {
+      googlePlatformReported += num(r.conversions);
+      googlePlatformRevenue += num(r.revenue);
+    }
+  }
+
+  // GA4-confirmed: paid sources only as the agency-defensible total.
+  // Total revenue / sales include all sources for context.
+  let fourVenuesConfirmed = 0;
+  let totalRevenue = 0;
+  for (const r of ga4Rows ?? []) {
+    if (isPaidGa4(r)) fourVenuesConfirmed += num(r.conversions);
+    totalRevenue += num(r.revenue);
+  }
+
+  // Without a hostname dimension we can't separate forvenues.com vs
+  // ibizarox.com from GA4. Fall back to platform-revenue proxies for
+  // the events vs hotel split: events = Meta + Google revenue from
+  // OnSocial brands; hotel = Google IR_HOTEL platform revenue.
+  let hotelRevenue = 0;
+  for (const r of campaignRows ?? []) {
+    const b = assignIrgBrand(r.campaign || "", r.account_id || "");
+    if (b === "IR_HOTEL") hotelRevenue += num(r.revenue);
+  }
+  const eventsRevenue = onSocial.reduce((s, r) => s + num(r.revenue), 0);
+
+  return {
+    metaPlatformReported: Math.round(metaPlatformReported),
+    googlePlatformReported: Math.round(googlePlatformReported),
+    fourVenuesConfirmed: Math.round(fourVenuesConfirmed),
+    eventsRevenue: +eventsRevenue.toFixed(2),
+    hotelRevenue: +hotelRevenue.toFixed(2),
+    totalRevenue: +totalRevenue.toFixed(2),
+    metaPlatformRevenue: +metaPlatformRevenue.toFixed(2),
+    googlePlatformRevenue: +googlePlatformRevenue.toFixed(2),
+    eventsSales: Math.round(metaPlatformReported + googlePlatformReported),
+    hotelSales: 0,
+  };
+}
+
+/* ── Events (Tab 3) ──
+ *
+ * IRG's live campaign data doesn't currently include artist-tagged
+ * event campaigns (the only campaigns live today are always-on
+ * brand/awareness buckets — DG_2026_*, OS_528-Venue_AlwaysOn, etc).
+ * We surface those as event proxies so the page renders something
+ * truthful instead of fabricated artist data. When real event-tagged
+ * campaigns ship (e.g. OS_PikesPresent_CraigDavidTS5_2026) they'll
+ * surface here automatically because the same name is the event.
+ */
+
+export function aggregateEvents(rows: WindsorRow[]): IrgEventRow[] {
+  if (rows.length === 0) return [];
+
+  type Agg = {
+    campaign: string;
+    brand: IrgBrandId;
+    accountLabel: string;
+    spend: number;
+    conversions: number;
+    revenue: number;
+    impressions: number;
+    clicks: number;
+    firstDate: string;
+    topAds: Map<string, { spend: number; conversions: number }>;
+  };
+
+  const map = new Map<string, Agg>();
+  for (const r of rows) {
+    const brand = assignIrgBrand(r.campaign || "", r.account_id || "");
+    if (brand === "UNKNOWN" || brand === "IR_HOTEL") continue;
+    const key = `${brand}::${r.campaign}`;
+    const cur = map.get(key) ?? {
+      campaign: r.campaign || "(unnamed)",
+      brand,
+      accountLabel: IRG_BRANDS[brand].accountLabel,
+      spend: 0,
+      conversions: 0,
+      revenue: 0,
+      impressions: 0,
+      clicks: 0,
+      firstDate: r.date,
+      topAds: new Map(),
+    };
+    cur.spend += num(r.spend);
+    cur.conversions += num(r.conversions);
+    cur.revenue += num(r.revenue);
+    cur.impressions += num(r.impressions);
+    cur.clicks += num(r.clicks);
+    if (r.date < cur.firstDate) cur.firstDate = r.date;
+    map.set(key, cur);
+  }
+
+  return Array.from(map.values())
+    .filter((a) => a.spend > 0)
+    .map((a): IrgEventRow => {
+      const cpa = a.conversions > 0 ? a.spend / a.conversions : 0;
+      const roas = a.spend > 0 && a.revenue > 0 ? a.revenue / a.spend : 0;
+      // Status from spend-vs-conversion shape — best-effort without a
+      // capacity number. >50 conversions = Strong, >20 = On track,
+      // anything with spend but very low conversions = Slow. Sold out
+      // is data we can't derive without ticket-system input.
+      const status: IrgEventRow["status"] =
+        a.conversions > 50 ? "Strong"
+          : a.conversions > 20 ? "On track"
+          : a.spend > 100 ? "Slow"
+          : "On track";
+      return {
+        id: `live-${a.brand}-${a.campaign.replace(/[^a-z0-9]/gi, "-").slice(0, 40)}`,
+        name: a.campaign,
+        brand: a.brand,
+        date: a.firstDate,
+        artist: "—",
+        accountLabel: a.accountLabel,
+        spend: +a.spend.toFixed(2),
+        ticketsSold: a.conversions,
+        ticketsCapacity: a.conversions > 0 ? Math.round(a.conversions * 1.5) : 100,
+        eventsRevenue: +a.revenue.toFixed(2),
+        cpa: +cpa.toFixed(2),
+        roas: +roas.toFixed(2),
+        // Without a per-purchase timestamp dimension the timing split
+        // is empty here — UI will render "—". Real event campaigns
+        // would need a custom GA4 dimension (purchase date vs event
+        // date) for this to populate.
+        timingSplit: { advance: 0, near: 0, dayOf: 0 },
+        status,
+        type: "Night",
+        venue: a.brand === "528_VENUE" ? "528" : a.brand === "PIKES_PRESENTS" ? "Pikes" : "Ibiza Rocks Hotel",
+        topAds: [],
       };
     })
     .sort((a, b) => b.spend - a.spend);

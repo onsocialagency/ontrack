@@ -23,9 +23,13 @@ import { useMemo } from "react";
 import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { VenueTabs } from "@/components/layout/venue-tabs";
+import { useDateRange } from "@/lib/date-range-context";
+import { useWindsor } from "@/lib/use-windsor";
+import type { WindsorRow } from "@/lib/windsor";
 import { cn } from "@/lib/utils";
 import { PURCHASE_VALUE_FIX_DATE } from "@/lib/irg-brands";
 import { getIrgReconciliation } from "@/lib/irg-mock";
+import { aggregateReconciliation } from "@/lib/irg-live";
 import { Info, AlertTriangle } from "lucide-react";
 
 const CARD_BG = "bg-white/[0.04]";const CARD_BORDER = "border-white/[0.06]";const ACCENT_GREEN = "#1D9E75";
@@ -59,7 +63,31 @@ export default function ReconciliationPage() {
 }
 
 function IrgReconciliationView() {
-  const r = useMemo(() => getIrgReconciliation(), []);
+  const { client: clientSlug } = useParams<{ client: string }>();
+  const { days, preset, dateFrom, dateTo } = useDateRange();
+  const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};
+
+  // Two endpoints feed reconciliation:
+  //   campaigns → platform-reported sales (Meta + Google) and revenue
+  //   ga4       → confirmed sales / revenue with source/medium so we
+  //               can isolate paid traffic as "Four Venues confirmed"
+  const { data: campRows } = useWindsor<WindsorRow[]>({
+    clientSlug, type: "campaigns", days, ...customDateProps,
+  });
+  const { data: ga4Rows } = useWindsor<WindsorRow[]>({
+    clientSlug, type: "ga4", days, ...customDateProps,
+  });
+
+  const r = useMemo(() => {
+    if (campRows && campRows.length > 0) {
+      return aggregateReconciliation(
+        campRows,
+        // GA4 rows aren't typed as WindsorRow; cast through unknown.
+        (ga4Rows ?? []) as unknown as Parameters<typeof aggregateReconciliation>[1],
+      );
+    }
+    return getIrgReconciliation();
+  }, [campRows, ga4Rows]);
 
   const claimed = r.metaPlatformReported + r.googlePlatformReported;
   const ratio = r.fourVenuesConfirmed > 0 ? claimed / r.fourVenuesConfirmed : 0;

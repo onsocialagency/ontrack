@@ -25,10 +25,14 @@ import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { useVenue } from "@/lib/venue-context";
+import { useDateRange } from "@/lib/date-range-context";
+import { useWindsor } from "@/lib/use-windsor";
+import type { WindsorRow } from "@/lib/windsor";
 import { cn } from "@/lib/utils";
 import { IRG_BRANDS } from "@/lib/irg-brands";
 import { getIrgEvents, type IrgEventRow, type EventStatus } from "@/lib/irg-mock";
-import { CalendarDays, List as ListIcon, Mic2, ChevronDown, ChevronRight } from "lucide-react";
+import { aggregateEvents } from "@/lib/irg-live";
+import { CalendarDays, List as ListIcon, Mic2, ChevronDown, ChevronRight, Info } from "lucide-react";
 
 const CARD_BG = "bg-white/[0.04]";const CARD_BORDER = "border-white/[0.06]";const ACCENT_GREEN = "#1D9E75";
 const ACCENT_GOLD = "#C8A96E";
@@ -58,8 +62,28 @@ const STATUS_COLOURS: Record<EventStatus, { bg: string; text: string }> = {
 export default function EventsPage() {
   const { client: clientSlug } = useParams<{ client: string }>();
   const { activeVenue } = useVenue();
+  const { days, preset, dateFrom, dateTo } = useDateRange();
+  const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};
 
-  const all = useMemo(() => getIrgEvents(), []);
+  // Live campaigns feed → derived events. IRG's current ad accounts
+  // don't yet contain artist-tagged event campaigns (only always-on
+  // brand/awareness buckets), so the live result will be a small set
+  // of campaign-level event proxies. Fall back to mock when the feed
+  // is empty so the calendar / artist views still demo cleanly.
+  const { data: liveData } = useWindsor<WindsorRow[]>({
+    clientSlug, type: "campaigns", days, ...customDateProps,
+  });
+
+  const all = useMemo<IrgEventRow[]>(() => {
+    if (liveData && liveData.length > 0) {
+      const live = aggregateEvents(liveData);
+      if (live.length > 0) return live;
+    }
+    return getIrgEvents();
+  }, [liveData]);
+
+  const isLive = !!liveData && liveData.length > 0 && aggregateEvents(liveData).length > 0;
+
   const [view, setView] = useState<ViewMode>("list");
   const [typeFilter, setTypeFilter] = useState<"all" | IrgEventRow["type"]>("all");
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -141,23 +165,39 @@ export default function EventsPage() {
           </span>
         </div>
 
-        {/* Headline note about purchase timing */}
-        <div
-          className="rounded-xl sm:rounded-2xl border px-3 py-2 flex items-start gap-2"
-          style={{
-            backgroundColor: "rgba(29,158,117,0.05)",
-            borderColor: "rgba(29,158,117,0.18)",
-          }}
-        >
-          <CalendarDays size={12} className="flex-shrink-0 mt-0.5" style={{ color: ACCENT_GREEN }} />
-          <p className="text-[11px] text-[#94A3B8] leading-relaxed">
-            Purchase timing split shows when each event&apos;s tickets are bought:
-            <span className="ml-1" style={{ color: ACCENT_GREEN }}>green = 7+ days advance</span>,
-            <span className="ml-1 text-amber-400">amber = 1–6 days</span>,
-            <span className="ml-1 text-red-400">red = day-of</span>.
-            Drives day-specific ad strategy — slow advance ratio means push retargeting hard close to the date.
-          </p>
-        </div>
+        {/* Live-data context banner — shown when we resolved events
+            from the live feed. Real IRG ad accounts only host always-on
+            brand campaigns today; per-artist event campaigns will show
+            up here as soon as they're created. */}
+        {isLive ? (
+          <div
+            className="rounded-xl sm:rounded-2xl border px-3 py-2 flex items-start gap-2"
+            style={{ backgroundColor: "rgba(58,142,255,0.05)", borderColor: "rgba(58,142,255,0.18)" }}
+          >
+            <Info size={12} className="flex-shrink-0 mt-0.5 text-blue-400" />
+            <p className="text-[11px] text-[#94A3B8] leading-relaxed">
+              Showing live campaign-level data as event proxies. IRG&apos;s
+              current accounts host always-on brand campaigns rather than
+              artist-tagged events. Per-artist campaigns
+              (e.g. <span className="font-mono">OS_PikesPresent_CraigDavidTS5</span>)
+              will surface here as soon as they go live.
+            </p>
+          </div>
+        ) : (
+          <div
+            className="rounded-xl sm:rounded-2xl border px-3 py-2 flex items-start gap-2"
+            style={{ backgroundColor: "rgba(29,158,117,0.05)", borderColor: "rgba(29,158,117,0.18)" }}
+          >
+            <CalendarDays size={12} className="flex-shrink-0 mt-0.5" style={{ color: ACCENT_GREEN }} />
+            <p className="text-[11px] text-[#94A3B8] leading-relaxed">
+              Purchase timing split shows when each event&apos;s tickets are bought:
+              <span className="ml-1" style={{ color: ACCENT_GREEN }}>green = 7+ days advance</span>,
+              <span className="ml-1 text-amber-400">amber = 1–6 days</span>,
+              <span className="ml-1 text-red-400">red = day-of</span>.
+              Drives day-specific ad strategy — slow advance ratio means push retargeting hard close to the date.
+            </p>
+          </div>
+        )}
 
         {view === "list" && (
           <EventsList
