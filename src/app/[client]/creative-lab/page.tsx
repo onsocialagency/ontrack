@@ -10,9 +10,12 @@ import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { getClientCreatives } from "@/lib/mock-data";
-import type { WindsorRow } from "@/lib/windsor";
+import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
 import { isGoogleSource } from "@/lib/windsor";
 import type { CreativePlatform } from "@/lib/types";
+import { getContactsByAd, getContactsByAdGroup, categoriseLeadType } from "@/lib/leadReconciliation";
+import { getLeadTypeFromCampaign } from "@/lib/ministry-config";
+import type { CreativeLeadStats } from "@/components/creative-lab/CreativeCard";
 
 // Aggregator + scoring
 import { aggregateCreatives, type LiveCreative } from "@/lib/creativeAggregator";
@@ -100,6 +103,108 @@ export default function CreativeLabPage() {
     days,
     ...customDateProps,
   });
+
+  // HubSpot contacts — only used for lead-gen / hybrid clients to enrich
+  // each creative with confirmed leads, CPL and primary lead type. We
+  // request unconditionally; the windsor proxy returns an empty list for
+  // clients without a HubSpot connection so this is safe.
+  const { data: hubspotData } = useWindsor<HubSpotContact[]>({
+    clientSlug,
+    type: "hubspot",
+    days,
+    ...customDateProps,
+  });
+
+  /* ── Per-creative HubSpot enrichment ──
+     Builds two lookup maps and fuses them into a Map<adId|adGroupKey, leadStats>
+     so the render path is a single O(1) Map.get() per card.
+
+     Meta ads → matched by hsa_ad / utm_content → ad-level confirmed count.
+     Google ads → no ad-level URL param exists, so we fall back to ad-group
+     level via utm_content matching ad_group_name.
+     Anything else falls through to platform-reported on the card itself. */
+  const leadsByCreative = useMemo(() => {
+    const byAdId = getContactsByAd(hubspotData ?? [], windsorData ?? []);
+    const byAdGroup = getContactsByAdGroup(hubspotData ?? [], windsorData ?? []);
+
+    // Helper: bucket a contact array by lead type using event name → product
+    // mapping. Returns the most-common product label.
+    const primaryLeadType = (contacts: HubSpotContact[], campaignNameHint?: string): string | null => {
+      if (contacts.length === 0) return null;
+      const counts = new Map<string, number>();
+      for (const c of contacts) {
+        const t = categoriseLeadType(c.recentConversionEventName ?? c.firstConversionEventName);
+        counts.set(t, (counts.get(t) ?? 0) + 1);
+      }
+      // Convert event-name buckets to product labels:
+      //   FacebookLead / EnquiryForm / Unknown have no product hint, so we
+      //   fall back to the campaign-name pattern (most Ministry campaigns
+      //   are single-product so the campaign label is reliable).
+      //   DayPass is the one event that *does* map directly to a product.
+      let topBucket: string | null = null;
+      let topCount = 0;
+      for (const [bucket, n] of counts) {
+        if (n > topCount) { topCount = n; topBucket = bucket; }
+      }
+      if (topBucket === "DayPass") return "Day Pass";
+      if (campaignNameHint) return getLeadTypeFromCampaign(campaignNameHint).label;
+      return null;
+    };
+
+    const result = new Map<string, CreativeLeadStats>();
+    // Index by Meta ad_id
+    for (const [adId, contacts] of byAdId) {
+      // Find a windsor row for this ad to grab the campaign name hint.
+      const sample = (windsorData ?? []).find((r) => r.ad_id === adId);
+      const lt = primaryLeadType(contacts, sample?.campaign);
+      result.set(`ad:${adId}`, {
+        matched: true,
+        hubspotConfirmed: contacts.length,
+        cpl: 0, // computed in the card from spend ÷ leads
+        primaryLeadTypeLabel: lt,
+      });
+    }
+    // Index by Google ad-group composite key
+    for (const [key, contacts] of byAdGroup) {
+      const [campaignName] = key.split("::");
+      const lt = primaryLeadType(contacts, campaignName);
+      result.set(`grp:${key}`, {
+        matched: true,
+        hubspotConfirmed: contacts.length,
+        cpl: 0,
+        primaryLeadTypeLabel: lt,
+      });
+    }
+    return result;
+  }, [hubspotData, windsorData]);
+
+  // Resolve lead stats for an individual creative — try ad-level first,
+  // then ad-group, then return undefined (card falls back to platform).
+  const getLeadStatsFor = useCallback((c: LiveCreative): CreativeLeadStats | undefined => {
+    if (c.platform === "meta" && c.adId) {
+      const m = leadsByCreative.get(`ad:${c.adId}`);
+      if (m) return m;
+    }
+    if (c.platform === "google") {
+      // adSet on a Google creative is the ad group (set in aggregator).
+      const key = `grp:${c.campaign}::${c.adSet}`;
+      const m = leadsByCreative.get(key);
+      if (m) return m;
+    }
+    // Even when no HubSpot match, surface the inferred lead type from
+    // the campaign name so the card can still tell the user what
+    // product this ad is supposed to drive.
+    const inferred = getLeadTypeFromCampaign(c.campaign);
+    if (inferred.id !== "general") {
+      return {
+        matched: false,
+        hubspotConfirmed: 0,
+        cpl: 0,
+        primaryLeadTypeLabel: inferred.label,
+      };
+    }
+    return undefined;
+  }, [leadsByCreative]);
 
   const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
 
@@ -300,6 +405,7 @@ export default function CreativeLabPage() {
                     creative={creative}
                     currency={currency}
                     clientType={client?.type}
+                    leadStats={getLeadStatsFor(creative)}
                     onClick={() => setSelectedCreative(creative)}
                   />
                 ))}
@@ -355,6 +461,18 @@ export default function CreativeLabPage() {
               currency={currency}
               loading={windsorLoading}
               isLive={!!isLive}
+              isLeadGen={client?.type === "lead_gen" || client?.type === "hybrid"}
+              hubspotByAdGroup={(() => {
+                // Flatten the per-ad-group lookup into a Map<key, count>
+                // for lightweight prop transfer. Key is lowercased
+                // `${campaign}::${adGroup}` to match the view's lookup.
+                const m = new Map<string, number>();
+                for (const [k, contacts] of leadsByCreative) {
+                  if (!k.startsWith("grp:")) continue;
+                  m.set(k.slice(4).toLowerCase(), contacts.hubspotConfirmed);
+                }
+                return m;
+              })()}
             />
           )}
 

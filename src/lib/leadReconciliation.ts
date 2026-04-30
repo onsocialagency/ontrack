@@ -59,20 +59,40 @@ export function extractMetaCampaignFromFirstUrl(firstUrl: string | null | undefi
   campaignId: string | null;
   campaignName: string | null;
   accountId: string | null;
+  // Ad-level identifiers — Meta auto-injects hsa_ad when account-level URL
+  // parameters are enabled. utm_content is the manual convention many
+  // teams use for the same purpose. We expose both so the per-ad join in
+  // Creative Lab can fall back gracefully.
+  adId: string | null;
+  adGroupId: string | null;
   utmSource: string | null;
   utmMedium: string | null;
+  utmContent: string | null;
 } {
-  const empty = { campaignId: null, campaignName: null, accountId: null, utmSource: null, utmMedium: null };
+  const empty = {
+    campaignId: null,
+    campaignName: null,
+    accountId: null,
+    adId: null,
+    adGroupId: null,
+    utmSource: null,
+    utmMedium: null,
+    utmContent: null,
+  };
   if (!firstUrl) return empty;
   try {
     const url = new URL(firstUrl);
     const q = url.searchParams;
+    const utmContent = q.get("utm_content") || null;
     return {
       campaignId: q.get("hsa_cam") || null,
       accountId: q.get("hsa_acc") || null,
       campaignName: q.get("utm_campaign") || null,
+      adId: q.get("hsa_ad") || null,
+      adGroupId: q.get("hsa_grp") || null,
       utmSource: q.get("utm_source") || null,
       utmMedium: q.get("utm_medium") || null,
+      utmContent,
     };
   } catch {
     return empty;
@@ -628,6 +648,102 @@ export function getContactsByCampaign(
     const arr = result.get(matched.key) ?? [];
     arr.push(c);
     result.set(matched.key, arr);
+  }
+
+  return result;
+}
+
+/**
+ * Per-ad HubSpot match. Returns a Map keyed by Meta ad_id → HubSpotContact[].
+ *
+ * Meta auto-injects `hsa_ad=<ad_id>` into landing URLs when account-level
+ * URL parameters are enabled. We fall back to `utm_content` when it's a
+ * numeric value that matches a known Windsor ad_id — covering the manual
+ * `utm_content=<ad_id>` convention.
+ *
+ * Google is excluded here because Google's URL parameters don't carry an
+ * ad_id (gclid is click-level, not ad-level). Use getContactsByAdGroup()
+ * for Google attribution at the ad-group level.
+ */
+export function getContactsByAd(
+  contacts: HubSpotContact[],
+  windsorRows: WindsorRow[],
+): Map<string, HubSpotContact[]> {
+  // Build a set of known Meta ad_ids so utm_content fallback only matches
+  // values that actually exist in the Windsor feed.
+  const knownAdIds = new Set<string>();
+  for (const r of windsorRows) {
+    if (classifyPlatform(r.source) !== "meta") continue;
+    if (r.ad_id) knownAdIds.add(String(r.ad_id));
+  }
+
+  const result = new Map<string, HubSpotContact[]>();
+
+  for (const c of contacts) {
+    const { adId, utmContent } = extractMetaCampaignFromFirstUrl(c.firstUrl);
+    let key: string | null = null;
+    if (adId && knownAdIds.has(adId)) key = adId;
+    else if (utmContent && /^\d+$/.test(utmContent) && knownAdIds.has(utmContent)) key = utmContent;
+    if (!key) continue;
+    const arr = result.get(key) ?? [];
+    arr.push(c);
+    result.set(key, arr);
+  }
+
+  return result;
+}
+
+/**
+ * Per-ad-group HubSpot match for Google Ads. Returns a Map keyed by
+ * `${campaignName}::${adGroupName}` → HubSpotContact[].
+ *
+ * Google's URL parameters don't expose ad_id, but accounts with auto-tagging
+ * + a properly configured utm_content template (utm_content=<ad_group_name>
+ * or similar) populate utm_content with the ad-group identifier. We match
+ * against ad_group_name strings collected from Windsor rows.
+ *
+ * Falls back silently when no match — the Creative Lab UI then renders the
+ * Google ad-group's platform-reported conversions instead, with a "Platform
+ * reported" badge so the reader knows it's not HubSpot-confirmed.
+ */
+export function getContactsByAdGroup(
+  contacts: HubSpotContact[],
+  windsorRows: WindsorRow[],
+): Map<string, HubSpotContact[]> {
+  // Index of known {campaign, ad_group} pairs from Google Windsor rows
+  // — keyed by ad_group_name (lowercased) for case-insensitive matching.
+  const adGroups = new Map<string, { campaignName: string; adGroupName: string }>();
+  for (const r of windsorRows) {
+    if (classifyPlatform(r.source) !== "google") continue;
+    const adGroup = (r as unknown as { ad_group_name?: string }).ad_group_name;
+    if (!adGroup) continue;
+    adGroups.set(adGroup.toLowerCase(), {
+      campaignName: r.campaign || "(unnamed)",
+      adGroupName: adGroup,
+    });
+  }
+
+  const result = new Map<string, HubSpotContact[]>();
+
+  for (const c of contacts) {
+    // Only consider contacts that resolved to Google paid traffic.
+    const parsedChannel = mapAnalyticsSourceToChannel(c.analyticsSource);
+    const { utmSource, utmMedium, utmContent } = extractMetaCampaignFromFirstUrl(c.firstUrl);
+    const utmChannel = channelFromUtmSource(utmSource);
+    let channel: LeadChannel = parsedChannel;
+    if (c.googleClickId) channel = "google";
+    else if (utmChannel === "google" && (channel === "other" || channel === "direct" || isPaidUtmMedium(utmMedium))) {
+      channel = "google";
+    }
+    if (channel !== "google") continue;
+
+    if (!utmContent) continue;
+    const match = adGroups.get(utmContent.toLowerCase());
+    if (!match) continue;
+    const key = `${match.campaignName}::${match.adGroupName}`;
+    const arr = result.get(key) ?? [];
+    arr.push(c);
+    result.set(key, arr);
   }
 
   return result;

@@ -40,14 +40,29 @@ const FATIGUE_BADGES: Record<string, { label: string; color: string }> = {
   warning: { label: "Watch", color: "bg-amber-500/20 text-amber-400" },
 };
 
+/**
+ * Optional HubSpot enrichment for a creative. When the parent has matched
+ * HubSpot contacts to this ad (via hsa_ad / utm_content), it passes the
+ * confirmed count, CPL and the most-common lead type. When `matched`
+ * is false the card falls back to platform-reported conversions and
+ * shows a muted "Platform reported" tag so the reader knows the source.
+ */
+export interface CreativeLeadStats {
+  matched: boolean;
+  hubspotConfirmed: number;
+  cpl: number;
+  primaryLeadTypeLabel: string | null;
+}
+
 interface CreativeCardProps {
   creative: LiveCreative;
   currency: string;
   clientType?: import("@/lib/types").ClientType;
+  leadStats?: CreativeLeadStats;
   onClick: () => void;
 }
 
-export function CreativeCard({ creative, currency, clientType = "ecommerce", onClick }: CreativeCardProps) {
+export function CreativeCard({ creative, currency, clientType = "ecommerce", leadStats, onClick }: CreativeCardProps) {
   const isLeadGen = clientType === "lead_gen";
   const { scoreResult, channelRole } = creative;
   const roleInfo = CHANNEL_ROLE_LABELS[channelRole] || CHANNEL_ROLE_LABELS.unknown;
@@ -169,30 +184,72 @@ export function CreativeCard({ creative, currency, clientType = "ecommerce", onC
             </>
           ) : null}
           <MetricRow label="CTR" value={`${creative.ctr.toFixed(2)}%`} />
-          {isLeadGen ? (
-            <MetricRow
-              label="CPL"
-              value={creative.conversions > 0 ? formatCurrency(creative.spend / creative.conversions, currency) : "--"}
-            />
-          ) : !scoreResult.isROASHidden ? (
+          {/* Lead-gen view: prefer HubSpot-confirmed leads if the parent
+              wired in a leadStats match. When no HubSpot match, fall back
+              to platform-reported conversions and tag the value as
+              "Platform reported" so the reader knows the source. */}
+          {isLeadGen ? (() => {
+            // Resolve which lead count + CPL to render.
+            const useHubSpot = leadStats?.matched && leadStats.hubspotConfirmed > 0;
+            const leadCount = useHubSpot
+              ? leadStats!.hubspotConfirmed
+              : creative.conversions;
+            const cpl = leadCount > 0 ? creative.spend / leadCount : 0;
+            return (
+              <MetricRow
+                label="Leads"
+                value={leadCount > 0 ? String(leadCount) : "--"}
+                note={!useHubSpot && leadCount > 0 ? "Platform reported" : undefined}
+                muted={!useHubSpot && leadCount > 0}
+                value2={leadCount > 0 ? `CPL ${formatCurrency(cpl, currency)}` : undefined}
+              />
+            );
+          })() : !scoreResult.isROASHidden ? (
             <MetricRow label="ROAS" value={formatROAS(creative.roas)} />
           ) : (
             <MetricRow label="ROAS" value="--" muted note="Prospecting" />
           )}
           <MetricRow label="Freq" value={creative.frequency.toFixed(1)} />
           <MetricRow label="Spend" value={formatCurrency(creative.spend, currency)} />
+          {/* Lead type tag — only shown for lead_gen when we know the
+              product (campaign-name pattern match). Spans the full row
+              so it doesn't get squeezed by the 2-col grid. */}
+          {isLeadGen && leadStats?.primaryLeadTypeLabel && (
+            <div className="col-span-2 flex justify-between border-t border-white/[0.04] pt-1 mt-0.5">
+              <span className="text-[8px] sm:text-[9px] text-[#94A3B8]">Lead type</span>
+              <span className="text-[9px] sm:text-[10px] font-medium text-white">
+                {leadStats.primaryLeadTypeLabel}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function MetricRow({ label, value, muted, note }: { label: string; value: string; muted?: boolean; note?: string }) {
+function MetricRow({
+  label,
+  value,
+  muted,
+  note,
+  value2,
+}: {
+  label: string;
+  value: string;
+  muted?: boolean;
+  note?: string;
+  // Optional secondary value rendered to the right of the primary in a
+  // muted style — used by the lead-gen "Leads" row to inline the CPL
+  // alongside the lead count without taking a second grid cell.
+  value2?: string;
+}) {
   return (
     <div className="flex justify-between">
       <span className="text-[8px] sm:text-[9px] text-[#94A3B8]">{label}</span>
       <span className={cn("text-[9px] sm:text-[10px] font-medium", muted ? "text-[#64748B]" : "text-white")}>
         {value}
+        {value2 && <span className="text-[8px] text-[#94A3B8] ml-1">· {value2}</span>}
         {note && <span className="text-[7px] text-amber-400/60 ml-0.5">({note})</span>}
       </span>
     </div>

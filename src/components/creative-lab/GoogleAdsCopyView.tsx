@@ -69,6 +69,16 @@ interface GoogleAdsCopyViewProps {
   currency: string;
   loading: boolean;
   isLive: boolean;
+  /**
+   * Optional HubSpot ad-group enrichment, keyed `${campaign}::${adGroup}`
+   * (lowercased on lookup). When present, the Conv column is replaced
+   * with "Leads (HubSpot)" + a CPL column for lead-gen clients. Absent
+   * keys fall back to platform-reported conversions with a muted note.
+   */
+  hubspotByAdGroup?: Map<string, number>;
+  /** When true (lead-gen / hybrid), replace ROAS with CPL and prefer
+   *  HubSpot leads over platform conversions. */
+  isLeadGen?: boolean;
 }
 
 /* ── Sub-tab options ── */
@@ -100,7 +110,7 @@ function parseDescriptions(combined: string | undefined): string[] {
 
 /* ── Component ── */
 
-export function GoogleAdsCopyView({ googleAdsRows, googleCreatives, currency, loading, isLive }: GoogleAdsCopyViewProps) {
+export function GoogleAdsCopyView({ googleAdsRows, googleCreatives, currency, loading, isLive, hubspotByAdGroup, isLeadGen = false }: GoogleAdsCopyViewProps) {
   const [subTab, setSubTab] = useState("ads");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -295,7 +305,7 @@ export function GoogleAdsCopyView({ googleAdsRows, googleCreatives, currency, lo
         </div>
       </div>
 
-      {subTab === "ads" && <AdCopyTab ads={googleAds} searchQuery={searchQuery} currency={currency} />}
+      {subTab === "ads" && <AdCopyTab ads={googleAds} searchQuery={searchQuery} currency={currency} hubspotByAdGroup={hubspotByAdGroup} isLeadGen={isLeadGen} />}
       {subTab === "headlines" && <HeadlinesTab headlines={allHeadlines} searchQuery={searchQuery} currency={currency} />}
       {subTab === "keywords" && <KeywordsTab keywords={keywords} searchQuery={searchQuery} currency={currency} />}
     </div>
@@ -315,7 +325,7 @@ function StatCard({ label, value, color }: { label: string; value: string; color
 
 /* ── Ad Copy Tab ── */
 
-function AdCopyTab({ ads, searchQuery, currency }: { ads: GoogleAdEntry[]; searchQuery: string; currency: string }) {
+function AdCopyTab({ ads, searchQuery, currency, hubspotByAdGroup, isLeadGen }: { ads: GoogleAdEntry[]; searchQuery: string; currency: string; hubspotByAdGroup?: Map<string, number>; isLeadGen?: boolean }) {
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return ads;
     const q = searchQuery.toLowerCase();
@@ -363,15 +373,45 @@ function AdCopyTab({ ads, searchQuery, currency }: { ads: GoogleAdEntry[]; searc
             )}
           </div>
 
-          {/* Metrics */}
-          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
-            <MetricCell label="Spend" value={formatCurrency(ad.spend, currency)} />
-            <MetricCell label="Impressions" value={ad.impressions.toLocaleString()} />
-            <MetricCell label="Clicks" value={ad.clicks.toLocaleString()} />
-            <MetricCell label="CTR" value={`${ad.ctr.toFixed(2)}%`} color={ad.ctr >= 3 ? "text-emerald-400" : ad.ctr >= 1 ? "text-amber-400" : "text-red-400"} />
-            <MetricCell label="Conv" value={String(ad.conversions)} />
-            <MetricCell label="ROAS" value={ad.roas > 0 ? formatROAS(ad.roas) : "--"} color={ad.roas >= 3 ? "text-emerald-400" : ad.roas >= 1 ? "text-amber-400" : "text-red-400"} />
-          </div>
+          {/* Metrics — lead-gen clients see HubSpot-confirmed Leads + CPL
+              instead of Conv + ROAS. When HubSpot doesn't have the
+              ad-group joined, we fall back to platform-reported
+              conversions with a muted "Platform reported" tag so the
+              source of the number is unambiguous. */}
+          {(() => {
+            const adGroupKey = `${ad.campaign}::${ad.adGroup}`.toLowerCase();
+            const hubspotCount = hubspotByAdGroup?.get(adGroupKey) ?? 0;
+            const matched = hubspotCount > 0;
+            const leadCount = matched ? hubspotCount : ad.conversions;
+            const cpl = leadCount > 0 ? ad.spend / leadCount : 0;
+            return (
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+                <MetricCell label="Spend" value={formatCurrency(ad.spend, currency)} />
+                <MetricCell label="Impressions" value={ad.impressions.toLocaleString()} />
+                <MetricCell label="Clicks" value={ad.clicks.toLocaleString()} />
+                <MetricCell label="CTR" value={`${ad.ctr.toFixed(2)}%`} color={ad.ctr >= 3 ? "text-emerald-400" : ad.ctr >= 1 ? "text-amber-400" : "text-red-400"} />
+                {isLeadGen ? (
+                  <>
+                    <MetricCell
+                      label="Leads"
+                      value={leadCount > 0 ? String(leadCount) : "--"}
+                      color={matched ? "text-emerald-400" : undefined}
+                      sublabel={!matched && leadCount > 0 ? "Platform reported" : undefined}
+                    />
+                    <MetricCell
+                      label="CPL"
+                      value={leadCount > 0 ? formatCurrency(cpl, currency) : "--"}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <MetricCell label="Conv" value={String(ad.conversions)} />
+                    <MetricCell label="ROAS" value={ad.roas > 0 ? formatROAS(ad.roas) : "--"} color={ad.roas >= 3 ? "text-emerald-400" : ad.roas >= 1 ? "text-amber-400" : "text-red-400"} />
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Individual headlines */}
           {ad.headlines.length > 0 && (
@@ -643,11 +683,14 @@ function KeywordsTab({ keywords, searchQuery, currency }: { keywords: KeywordRow
 
 /* ── Shared ── */
 
-function MetricCell({ label, value, color }: { label: string; value: string; color?: string }) {
+function MetricCell({ label, value, color, sublabel }: { label: string; value: string; color?: string; sublabel?: string }) {
   return (
     <div>
       <p className="text-[9px] text-[#64748B] uppercase tracking-wider">{label}</p>
       <p className={cn("text-xs font-semibold mt-0.5", color || "text-white")}>{value}</p>
+      {sublabel && (
+        <p className="text-[8px] text-amber-400/60 mt-0.5">{sublabel}</p>
+      )}
     </div>
   );
 }
