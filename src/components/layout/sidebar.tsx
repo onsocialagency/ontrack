@@ -15,7 +15,6 @@ import {
   DollarSign,
   ChevronLeft,
   Menu,
-  ChevronsUpDown,
   LogOut,
   BarChart3,
   Megaphone,
@@ -38,7 +37,6 @@ interface SidebarProps {
   clientColor?: string;
   clientLogo?: string;
   isAdmin?: boolean;
-  allClients?: { slug: string; name: string; primaryColor: string }[];
   /** Show green dot on Creative Lab nav when there are alerts */
   creativeLabHasAlerts?: boolean;
 }
@@ -155,14 +153,12 @@ export function Sidebar({
   clientColor,
   clientLogo,
   isAdmin = false,
-  allClients = [],
   creativeLabHasAlerts = false,
 }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [clientSwitcherOpen, setClientSwitcherOpen] = useState(false);
   const { summary: suggestionSummary } = useSuggestionAlerts();
 
   // Close mobile sidebar on route change
@@ -263,17 +259,17 @@ export function Sidebar({
             collapsed ? "px-2 py-3" : "px-4 py-3",
           )}
         >
+          {/* Client switcher dropdown removed from in-client views.
+              Even for admins, having a "switch to other client"
+              dropdown next to a client's branding implies the current
+              page can pivot to other tenants — confusing UX and a
+              data-leak optic. Admins go to /master/clients to
+              navigate between clients instead. */}
           <div
             className={cn(
               "flex items-center gap-2.5",
               collapsed && "justify-center",
-              isAdmin && allClients.length > 1 && "cursor-pointer hover:bg-white/[0.04] -mx-2 px-2 py-1 rounded-lg transition-colors",
             )}
-            onClick={() => {
-              if (isAdmin && allClients.length > 1 && !collapsed) {
-                setClientSwitcherOpen((o) => !o);
-              }
-            }}
           >
             {clientLogo ? (
               <div className="flex-shrink-0 w-8 h-8 rounded-xl overflow-hidden flex items-center justify-center bg-white/10 shadow-lg">
@@ -302,55 +298,9 @@ export function Sidebar({
                     {isAdmin ? "Admin View" : "Client Dashboard"}
                   </p>
                 </div>
-                {isAdmin && allClients.length > 1 && (
-                  <ChevronsUpDown size={14} className="text-[#A8BBCC] flex-shrink-0" />
-                )}
               </>
             )}
           </div>
-
-          {/* Client switcher dropdown (admin only) */}
-          {clientSwitcherOpen && isAdmin && !collapsed && (
-            <div className="absolute left-2 right-2 top-full mt-1 z-50 rounded-xl border border-white/[0.1] bg-[#12121A] shadow-2xl py-1 max-h-[240px] overflow-y-auto">
-              {allClients.map((c) => (
-                <button
-                  key={c.slug}
-                  onClick={() => {
-                    setClientSwitcherOpen(false);
-                    const currentSub = pathname.replace(`/${clientSlug}`, "");
-                    router.push(`/${c.slug}${currentSub}`);
-                  }}
-                  className={cn(
-                    "w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.06] transition-colors",
-                    c.slug === clientSlug && "bg-white/[0.04]",
-                  )}
-                >
-                  <div
-                    className="w-6 h-6 rounded-lg flex items-center justify-center text-[9px] font-bold text-white flex-shrink-0"
-                    style={{ backgroundColor: c.primaryColor || "#FF6A41" }}
-                  >
-                    {c.name.slice(0, 2).toUpperCase()}
-                  </div>
-                  <span className={cn(
-                    "text-xs font-medium truncate",
-                    c.slug === clientSlug ? accentText : "text-[#A8BBCC]",
-                  )}>
-                    {c.name}
-                  </span>
-                </button>
-              ))}
-              <div className="border-t border-white/[0.06] mt-1 pt-1">
-                <Link
-                  href="/master"
-                  onClick={() => setClientSwitcherOpen(false)}
-                  className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-white/[0.06] transition-colors text-xs font-medium text-[#A8BBCC]"
-                >
-                  <LayoutDashboard size={14} />
-                  Master Dashboard
-                </Link>
-              </div>
-            </div>
-          )}
         </div>
       )}
 

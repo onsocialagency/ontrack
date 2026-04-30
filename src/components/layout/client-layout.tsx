@@ -23,7 +23,6 @@ interface ClientLayoutProps {
   clientLocale?: string;
   clientTimezone?: string;
   isAdmin?: boolean;
-  allClients?: { slug: string; name: string; primaryColor: string }[];
   clientConfig?: Client;
   children: React.ReactNode;
 }
@@ -39,7 +38,6 @@ export function ClientLayout({
   clientLocale,
   clientTimezone,
   isAdmin = false,
-  allClients = [],
   clientConfig,
   children,
 }: ClientLayoutProps) {
@@ -55,7 +53,6 @@ export function ClientLayout({
         clientColor={clientColor}
         clientLogo={clientLogo}
         isAdmin={isAdmin}
-        allClients={allClients}
       />
       <main
         className={cn(

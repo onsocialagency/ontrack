@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getClientBySlug, getAllClients } from "@/lib/client-store";
+import { getClientBySlug } from "@/lib/client-store";
 import { ClientLayout } from "@/components/layout/client-layout";
 import { getSessionFromCookies, canAccessClient } from "@/lib/auth";
 
@@ -35,12 +35,10 @@ export default async function ClientRootLayout({
 
   const isAdmin = session.role === "master";
 
-  // Build client list for the sidebar admin switcher (admins only —
-  // a client session never sees the switcher, and even if the markup
-  // were tampered with, the server-side guard above blocks the
-  // resulting navigation).
-  const allStoredClients = isAdmin ? await getAllClients() : [];
-  const allClients = allStoredClients.map((c) => ({ slug: c.slug, name: c.name, primaryColor: c.primaryColor }));
+  // The in-sidebar client switcher was retired — it gave admins a way
+  // to jump between clients but doubled as a confusing data-leak optic
+  // when sat next to a single client's branding. Admins navigate via
+  // /master/clients instead. allClients is no longer fetched here.
 
   if (!client) {
     return (
@@ -65,7 +63,6 @@ export default async function ClientRootLayout({
       clientLocale={client.locale}
       clientTimezone={client.timezone}
       isAdmin={isAdmin}
-      allClients={allClients}
       clientConfig={client}
     >
       {children}
