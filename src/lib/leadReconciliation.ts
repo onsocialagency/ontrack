@@ -566,3 +566,69 @@ export function reconcileByCampaign(
   }
   return rows.sort((a, b) => b.spend - a.spend);
 }
+
+/**
+ * Same matching logic as reconcileByCampaign, but returns the actual
+ * HubSpot contact lists per campaign so the campaigns table can show a
+ * per-row breakdown (event-name source, lead type) without duplicating
+ * the URL → campaign join. Key is `${platform}::${campaignId ?? campaignName}`,
+ * matching reconcileByCampaign so callers can join the two outputs.
+ *
+ * Kept as a separate function rather than bolted onto CampaignReconciliation
+ * to keep the lightweight roll-up free of contact-array baggage when the
+ * caller doesn't need it.
+ */
+export function getContactsByCampaign(
+  contacts: HubSpotContact[],
+  windsorRows: WindsorRow[],
+): Map<string, HubSpotContact[]> {
+  // First pass — build the campaign key index from Windsor rows so
+  // contact joins can fail fast for campaigns that don't exist.
+  type CampaignKey = { key: string; platform: Platform; campaignId: string | null; campaignName: string };
+  const campaignIndex: CampaignKey[] = [];
+  const seen = new Set<string>();
+  for (const r of windsorRows) {
+    const platform = classifyPlatform(r.source);
+    const name = r.campaign || "(unnamed)";
+    const id = (r.campaign_id as string | undefined) || null;
+    const key = `${platform}::${id ?? name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    campaignIndex.push({ key, platform, campaignId: id, campaignName: name });
+  }
+
+  const result = new Map<string, HubSpotContact[]>();
+
+  for (const c of contacts) {
+    // Same channel-resolution chain as reconcileByCampaign — keep these
+    // two functions in lock-step.
+    const parsedChannel = mapAnalyticsSourceToChannel(c.analyticsSource);
+    const { utmSource, utmMedium, campaignId, campaignName } = extractMetaCampaignFromFirstUrl(c.firstUrl);
+    const utmChannel = channelFromUtmSource(utmSource);
+    let channel: LeadChannel = parsedChannel;
+    if (c.facebookClickId) channel = "meta";
+    else if (c.googleClickId) channel = "google";
+    else if (utmChannel && (channel === "other" || channel === "direct" || isPaidUtmMedium(utmMedium))) {
+      channel = utmChannel;
+    }
+    if (channel !== "meta" && channel !== "google") continue;
+
+    const platform: Platform = channel;
+    const joinName = campaignName ?? c.analyticsSourceData2 ?? c.latestSourceData1 ?? null;
+
+    let matched: CampaignKey | undefined;
+    if (campaignId) {
+      matched = campaignIndex.find((ck) => ck.platform === platform && ck.campaignId === campaignId);
+    }
+    if (!matched && joinName) {
+      matched = campaignIndex.find((ck) => ck.platform === platform && ck.campaignName === joinName);
+    }
+    if (!matched) continue;
+
+    const arr = result.get(matched.key) ?? [];
+    arr.push(c);
+    result.set(matched.key, arr);
+  }
+
+  return result;
+}
