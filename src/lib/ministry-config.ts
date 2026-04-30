@@ -20,14 +20,30 @@ export interface LeadType {
 
 export const LEAD_TYPES: LeadType[] = [
   {
+    // Club Membership: recurring monthly product. Higher commitment than a
+    // Day Pass so CPL tolerance is wider. Targets are placeholders pending
+    // confirmation from The Ministry — adjust here when finalised.
     id: "club",
-    label: "Club (Day Pass)",
+    label: "Club",
+    targetCplMin: 12,
+    targetCplMax: 25,
+    budgetMin: 800,
+    budgetMax: 1000,
+    volumeMin: 45,
+    volumeMax: 70,
+  },
+  {
+    // Day Pass: one-off purchase, easiest acquisition, cheapest CPL.
+    // Inherits the original combined Club/Day-Pass range as the proven
+    // benchmark for the cheaper end of the funnel.
+    id: "day_pass",
+    label: "Day Pass",
     targetCplMin: 6,
     targetCplMax: 12,
-    budgetMin: 1200,
-    budgetMax: 1500,
-    volumeMin: 90,
-    volumeMax: 135,
+    budgetMin: 400,
+    budgetMax: 500,
+    volumeMin: 45,
+    volumeMax: 65,
   },
   {
     id: "hot_desk",
@@ -131,8 +147,13 @@ export function getChannelRole(campaignName: string): ChannelRole | null {
  * This lets us segment leads by type even when Windsor can't
  * surface the enquiry_type custom parameter from Meta CAPI.
  */
+// Order matters: more specific patterns first so "day_pass" doesn't get
+// captured by a broader "club" rule. Day Pass is matched before Club for
+// exactly that reason — a campaign called "club_daypass_q2" should land in
+// day_pass, not club membership.
 const LEAD_TYPE_PATTERNS: { id: string; patterns: string[] }[] = [
-  { id: "club", patterns: ["clubmembership", "club_membership", "daypass", "day_pass", "day pass"] },
+  { id: "day_pass", patterns: ["daypass", "day_pass", "day pass"] },
+  { id: "club", patterns: ["clubmembership", "club_membership", "club_member", "clubmember", "club"] },
   { id: "private_office", patterns: ["privateoffice", "private_office", "private office"] },
   { id: "hot_desk", patterns: ["hotdesk", "hot_desk", "hot desk", "hotdesking"] },
   { id: "meeting_room", patterns: ["meetingroom", "meeting_room", "meeting room", "meetingrooms"] },

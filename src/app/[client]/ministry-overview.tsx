@@ -13,7 +13,7 @@ import { useDateRange } from "@/lib/date-range-context";
 import type { HubSpotContact, WindsorRow } from "@/lib/windsor";
 import { classifyPlatform, sumConversions, rowConversions } from "@/lib/windsor";
 import { reconcileLeads, reconcileByCampaign } from "@/lib/leadReconciliation";
-import { formatCurrency, formatNumber, cn } from "@/lib/utils";
+import { formatCurrency, formatNumber, cn, getBillingPeriod } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
@@ -48,12 +48,16 @@ const ACCENT = MINISTRY_BRAND.accentColor; // #C8A96E
 
 /* ── Lead type display order ── */
 
+// Display order: Club + Day Pass on the left (cheapest, highest volume),
+// then desk products, then office. General Enquiry is the catch-all and
+// stays at the end so it never visually outranks a tracked product.
 const LEAD_TYPE_ORDER = [
   "club",
+  "day_pass",
   "meeting_room",
   "private_office",
-  "hot_desk",
   "dedicated_desk",
+  "hot_desk",
   "general",
 ];
 
@@ -89,9 +93,13 @@ function generateMockData(days: number) {
   const metaConversions = Math.round(totalConversions * metaRatio);
   const googleConversions = totalConversions - metaConversions;
 
-  // Mock lead type breakdown matching volume ranges from config
+  // Mock lead type breakdown matching volume ranges from config.
+  // Club + Day Pass were previously combined; mock now splits them in roughly
+  // the proportion The Ministry's real campaigns have shown historically
+  // (Day Pass is the cheaper, higher-volume top-of-funnel product).
   const mockLeadTypes: Record<string, { conversions: number; spend: number }> = {
-    club: { conversions: 55, spend: 550 },
+    club: { conversions: 28, spend: 420 },
+    day_pass: { conversions: 27, spend: 130 },
     meeting_room: { conversions: 48, spend: 480 },
     private_office: { conversions: 30, spend: 1500 },
     hot_desk: { conversions: 22, spend: 396 },
@@ -355,15 +363,24 @@ export default function MinistryOverview() {
     verifiedCpl: chartData.map((d) => ({ v: d.verifiedCpl, label: d.date })),
   }), [chartData]);
 
-  // Budget pacing
-  const now = new Date();
-  const dayOfMonth = now.getDate();
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const daysRemaining = daysInMonth - dayOfMonth;
+  // Budget pacing — driven by the contract billing period (Ministry's
+  // contract renews on the 29th of each month, so a calendar-month split
+  // misreports days-elapsed every cycle). getBillingPeriod() handles the
+  // edge case where a 29-start month rolls into February.
+  const billingPeriod = getBillingPeriod(client?.billingStartDay ?? 1);
+  const daysInMonth = billingPeriod.daysInPeriod;
+  const dayOfMonth = billingPeriod.daysElapsed;
+  const daysRemaining = billingPeriod.daysRemaining;
   const dailyAvgSpend = dayOfMonth > 0 ? current.totalSpend / dayOfMonth : 0;
   const projectedEOM = dailyAvgSpend * daysInMonth;
-  const pacingPct = MONTHLY_BUDGET > 0 ? Math.min((current.totalSpend / MONTHLY_BUDGET) * 100, 100) : 0;
-  const projectedOnTrack = projectedEOM >= MONTHLY_BUDGET;
+  // Allow >100% so the bar visually exceeds when overspending; the card
+  // header still flips to amber via projectedOnTrack so the user notices.
+  const pacingPctRaw = MONTHLY_BUDGET > 0 ? (current.totalSpend / MONTHLY_BUDGET) * 100 : 0;
+  const pacingPct = Math.min(pacingPctRaw, 100);
+  // "On track" = projected end-of-period spend will roughly hit (not blow
+  // through) the budget. Treat ±10% as on track; outside that we're either
+  // underspending (likely losing reach) or overspending (cap risk).
+  const projectedOnTrack = projectedEOM >= MONTHLY_BUDGET * 0.9 && projectedEOM <= MONTHLY_BUDGET * 1.1;
 
   // Platform split
   const totalPlatformSpend = current.metaSpend + current.googleSpend;
@@ -388,6 +405,11 @@ export default function MinistryOverview() {
 
   // Lead-type drilldown modal
   const [drilldownLeadType, setDrilldownLeadType] = useState<string | null>(null);
+  // Daily-performance chart series toggle. Default "all" shows the
+  // composite (bars + line + tooltip CPL). The user can collapse to a
+  // single series when they want to read one number cleanly without the
+  // other distracting them.
+  const [chartSeries, setChartSeries] = useState<"all" | "spend" | "leads" | "cpl">("all");
   const closeDrilldown = useCallback(() => setDrilldownLeadType(null), []);
 
   // Per-campaign HubSpot reconciliation, used by the drilldown to cross-reference
@@ -396,6 +418,30 @@ export default function MinistryOverview() {
     () => reconcileByCampaign(hubspotData ?? [], windsorData ?? []),
     [hubspotData, windsorData],
   );
+
+  // HubSpot-confirmed counts and confirmed CPL per product, derived by
+  // re-grouping campaignRecon rows through the same campaign-name → lead-type
+  // pattern matcher used elsewhere. Spend stays as the per-product Windsor
+  // spend (leadTypeBreakdown[id].spend) so confirmed CPL = product spend ÷
+  // verified contacts on that product. When the windsor data is missing
+  // we fall back gracefully to an empty bucket so the card shows "No Data"
+  // rather than NaN.
+  const verifiedByLeadType = useMemo(() => {
+    const result: Record<string, { verified: number; confirmedCpl: number }> = {};
+    for (const lt of LEAD_TYPES) {
+      result[lt.id] = { verified: 0, confirmedCpl: 0 };
+    }
+    for (const row of campaignRecon) {
+      const lt = getLeadTypeFromCampaign(row.campaignName);
+      result[lt.id].verified += row.hubspotConfirmed ?? 0;
+    }
+    for (const lt of LEAD_TYPES) {
+      const verified = result[lt.id].verified;
+      const spend = current.leadTypeBreakdown[lt.id]?.spend ?? 0;
+      result[lt.id].confirmedCpl = verified > 0 ? +(spend / verified).toFixed(2) : 0;
+    }
+    return result;
+  }, [campaignRecon, current.leadTypeBreakdown]);
 
   const currentLabel = chartData.length > 0
     ? `${chartData[0].date} - ${chartData[chartData.length - 1].date}`
@@ -462,13 +508,20 @@ export default function MinistryOverview() {
         )}
 
         {/* ── SECTION 1: KPI Strip ──
-            Team feedback: each card should state what it is, what the number
-            means, and where it comes from. No bare numbers without a label.
-            Order matches client brief: Spend → Platform → CPL → Meta → Google.
-            HubSpot Confirmed is surfaced in its own detailed module below
-            (Section 2 / CRM Reconciliation), not in the top strip — the six-
-            card layout was cramming titles and clipping values. */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
+            Hero row: four cards the client looks at first.
+              1. Spend — total across Meta + Google for the selected window
+              2. HubSpot Confirmed Leads — paid-source contacts only (the
+                 number we defend in WBR / MBR)
+              3. CPL Confirmed — Spend ÷ HubSpot Confirmed; the efficiency
+                 number that actually answers "are we doing a good job?"
+              4. Budget Pacing — % of monthly budget used in the *contract*
+                 billing period (Ministry renews on the 29th, not the 1st)
+            Sub-row directly below: Meta Spend / Google Spend so the client
+            can see the platform split without opening another tab.
+            Platform-Reported was removed from the strip — it lives as a
+            comparison column in CRM Reconciliation and reading it next to
+            HubSpot Confirmed at the top was making us look bad. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <KpiCard loading={windsorLoading}
             title="Spend"
             value={formatCurrency(current.totalSpend, currency)}
@@ -486,50 +539,72 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard loading={windsorLoading}
-            attributionSource="platform-claimed"
-            title="Platform Reported"
-            value={formatNumber(current.totalConversions)}
-            delta={deltas.conversions}
+            attributionSource="crm-verified"
+            title="HubSpot Confirmed Leads"
+            value={formatNumber(verifiedAdLeads)}
+            delta={deltas.verifiedLeads}
             icon={<Users size={12} />}
-            subLabel="Counted by ad platforms"
-            tooltip="Sum of conversions as reported by Meta and Google. Includes platform view-through conversions (Meta) and 30-day click windows (Google). These numbers will always be higher than HubSpot."
-            sparkline={sparklines.conversions}
-            accentColor={ACCENT}
+            subLabel="Paid source only"
+            tooltip="Leads in HubSpot that we can prove came from a paid ad — matched via GTM event ID, fbclid/gclid, Facebook Lead Ads event, hsa_cam, or paid UTMs. Excludes organic and direct contacts. This is the source of truth."
+            sparkline={sparklines.verifiedLeads}
+            accentColor="#22C55E"
             onClick={() => setKpiDetail(buildDetail(
-              "Platform Reported", <Users size={18} />,
-              formatNumber(current.totalConversions),
-              "conversions",
+              "HubSpot Confirmed Leads", <Users size={18} />,
+              formatNumber(verifiedAdLeads),
+              "verifiedLeads",
               [
-                { name: "Meta Ads", value: current.metaConversions, formatted: formatNumber(current.metaConversions), color: "#3B82F6" },
-                { name: "Google Ads", value: current.googleConversions, formatted: formatNumber(current.googleConversions), color: "#22C55E" },
+                { name: "Verified (campaign match)", value: verifiedAdLeads, formatted: formatNumber(verifiedAdLeads), color: "#22C55E" },
+                { name: "Heuristic paid (no join)", value: hubspotReconciliation.totalHeuristicPaid, formatted: formatNumber(hubspotReconciliation.totalHeuristicPaid), color: "#F59E0B" },
+                { name: "Other (organic / direct / email)", value: Math.max(hubspotTotal - verifiedAdLeads - hubspotReconciliation.totalHeuristicPaid, 0), formatted: formatNumber(Math.max(hubspotTotal - verifiedAdLeads - hubspotReconciliation.totalHeuristicPaid, 0)), color: "#64748B" },
               ],
-              ACCENT,
+              "#22C55E",
               (v) => formatNumber(v),
             ))}
           />
           <KpiCard loading={windsorLoading}
-            title="CPL (Confirmed)"
+            title="CPL Confirmed"
             value={verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, currency) : "—"}
             delta={deltas.verifiedCpl}
             invertDelta
             icon={<TrendingDown size={12} />}
-            subLabel="Cost per HubSpot lead"
+            subLabel="Spend ÷ HubSpot confirmed"
             tooltip="Total ad spend divided by HubSpot-confirmed paid leads. Excludes organic and direct leads from the denominator. This is the real cost per lead — the number we defend."
             sparkline={sparklines.verifiedCpl}
             accentColor={ACCENT}
             onClick={() => setKpiDetail(buildDetail(
-              "CPL (Confirmed)", <TrendingDown size={18} />,
+              "CPL Confirmed", <TrendingDown size={18} />,
               verifiedAdLeads > 0 ? formatCurrency(current.totalSpend / verifiedAdLeads, currency) : formatCurrency(current.blendedCpl, currency),
               "verifiedCpl", platformBreakdown, ACCENT,
               (v) => formatCurrency(v, currency),
             ))}
           />
+          {/* Budget Pacing — uses the contract billing period (29th–28th
+              for Ministry) so % used reflects the cycle we actually invoice
+              against, not the calendar month. The deeper pacing module
+              with daily-avg and projected-EOM lives below. */}
           <KpiCard loading={windsorLoading}
+            title="Budget Pacing"
+            value={`${pacingPctRaw.toFixed(0)}%`}
+            delta={0}
+            icon={<TrendingDown size={12} />}
+            subLabel={`${formatCurrency(current.totalSpend, currency)} of ${formatCurrency(MONTHLY_BUDGET, currency)} · ${daysRemaining}d left`}
+            tooltip={`Spend so far in the current billing period (${billingPeriod.label}) as a share of the monthly budget. Ministry's billing cycle starts on day ${client?.billingStartDay ?? 1} of each month.`}
+            accentColor={projectedOnTrack ? "#22C55E" : pacingPctRaw > 110 ? "#EF4444" : "#F59E0B"}
+          />
+        </div>
+
+        {/* Sub-row: Meta + Google split — directly under the hero strip
+            so the client can see "where did the spend go" without
+            navigating away. Compact size keeps these visually secondary
+            to the four hero cards above. */}
+        <div className="grid grid-cols-2 gap-3 sm:gap-4">
+          <KpiCard loading={windsorLoading}
+            size="compact"
             title="Meta Spend"
             value={formatCurrency(current.metaSpend, currency)}
             delta={deltas.meta}
             icon={<MetaIcon size={12} />}
-            subLabel="This period"
+            subLabel="Facebook + Instagram"
             tooltip="Facebook and Instagram ad spend only (Meta Ads Manager). Excludes Google and any other channel."
             sparkline={sparklines.metaSpend}
             accentColor={ACCENT}
@@ -541,11 +616,12 @@ export default function MinistryOverview() {
             ))}
           />
           <KpiCard loading={windsorLoading}
+            size="compact"
             title="Google Spend"
             value={formatCurrency(current.googleSpend, currency)}
             delta={deltas.google}
             icon={<GoogleIcon size={12} />}
-            subLabel="This period"
+            subLabel="Search + Performance Max"
             tooltip="Google Ads spend only (Search + Performance Max). Excludes Meta and any other channel."
             sparkline={sparklines.googleSpend}
             accentColor={ACCENT}
@@ -699,76 +775,89 @@ export default function MinistryOverview() {
           </div>
         </div>
 
-        {/* ── SECTION 3: Lead Type CPL Grid ── */}
+        {/* ── SECTION 3: Lead Type Performance Grid ──
+            Six product cards: Club, Day Pass, Meeting Room, Private Office,
+            Dedicated Desk, Hot Desk. The "General Enquiry" bucket is left
+            out of this grid — it's a catch-all for un-mapped events and the
+            client doesn't run a campaign called "general", so giving it a
+            card next to the real products inflates the visual surface and
+            usually shows red where it's actually just untagged data. The
+            general bucket still exists in LEAD_TYPES so the reconciler can
+            land unknown contacts somewhere; it's just not rendered here.
+
+            Each card shows:
+              - HubSpot Confirmed lead count (the source of truth)
+              - CPL Confirmed = product Windsor spend ÷ verified contacts
+              - Status badge driven by CPL vs target range
+              - Platform-claimed count as muted secondary text so the team
+                can still see the over-attribution gap at a glance */}
         <div>
           <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider mb-2">
             Lead Type Performance
           </h2>
 
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {orderedLeadTypes.map((lt) => {
-              const bd = leadTypeBreakdown[lt.id];
-              const convCount = bd?.conversions ?? 0;
-              const cpl = bd?.cpl ?? 0;
-              // hasData gates the badge out of green when there are no leads
-              // or no spend — prevents "Ahead of Target" appearing for an
-              // empty bucket just because £0 ≤ targetMin.
-              const hasData = convCount > 0 && (bd?.spend ?? 0) > 0;
-              const status = getCplStatus(cpl, lt, hasData);
-              const statusColors = CPL_STATUS_COLORS[status];
+            {orderedLeadTypes
+              .filter((lt) => lt.id !== "general")
+              .map((lt) => {
+                const bd = leadTypeBreakdown[lt.id];
+                const verified = verifiedByLeadType[lt.id]?.verified ?? 0;
+                const confirmedCpl = verifiedByLeadType[lt.id]?.confirmedCpl ?? 0;
+                const platformCount = bd?.conversions ?? 0;
+                // CPL Confirmed drives the status badge — that's the number
+                // we defend, not the platform-claimed CPL.
+                const hasData = verified > 0 && (bd?.spend ?? 0) > 0;
+                const status = getCplStatus(confirmedCpl, lt, hasData);
+                const statusColors = CPL_STATUS_COLORS[status];
 
-              return (
-                <button
-                  key={lt.id}
-                  type="button"
-                  onClick={() => setDrilldownLeadType(lt.id)}
-                  className="text-left bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-2 hover:border-white/[0.14] hover:bg-white/[0.06] transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#C8A96E]/60"
-                >
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-sm font-bold text-white">{lt.label}</h3>
-                    {convCount > 0 ? (
+                return (
+                  <button
+                    key={lt.id}
+                    type="button"
+                    onClick={() => setDrilldownLeadType(lt.id)}
+                    className="text-left bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-2 hover:border-white/[0.14] hover:bg-white/[0.06] transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-[#C8A96E]/60"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="text-sm font-bold text-white">{lt.label}</h3>
                       <span
                         className={cn(
-                          "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider",
+                          "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider whitespace-nowrap",
                           statusColors.bg,
-                          statusColors.text
+                          statusColors.text,
                         )}
                       >
                         {statusColors.label}
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wider bg-zinc-500/20 text-zinc-400">
-                        No Data
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <div>
-                      <span className="text-xl font-bold">{formatNumber(convCount)}</span>
-                      <p className="text-[9px] text-[#94A3B8]/60">Platform reported conversions</p>
                     </div>
-                    {convCount > 0 && (
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-sm font-semibold" style={{ color: ACCENT }}>
-                          CPL: {formatCurrency(cpl, currency)}
-                        </span>
+
+                    <div className="space-y-1">
+                      <div>
+                        <span className="text-xl font-bold">{formatNumber(verified)}</span>
+                        <p className="text-[9px] text-[#94A3B8]/60">HubSpot confirmed leads</p>
                       </div>
-                    )}
-                    {lt.targetCplMin !== null && lt.targetCplMax !== null && (
-                      <p className="text-[10px] text-[#94A3B8]">
-                        Target: {formatCurrency(lt.targetCplMin, currency)}–{formatCurrency(lt.targetCplMax, currency)}
-                      </p>
-                    )}
-                    {bd?.campaigns && bd.campaigns.length > 0 && (
-                      <p className="text-[9px] text-[#94A3B8]/40 truncate" title={bd.campaigns.join(", ")}>
-                        {bd.campaigns.length} campaign{bd.campaigns.length > 1 ? "s" : ""}
-                      </p>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
+                      {hasData ? (
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-sm font-semibold" style={{ color: ACCENT }}>
+                            CPL: {formatCurrency(confirmedCpl, currency)}
+                          </span>
+                        </div>
+                      ) : (
+                        <p className="text-sm font-semibold text-[#64748B]">CPL: —</p>
+                      )}
+                      {lt.targetCplMin !== null && lt.targetCplMax !== null && (
+                        <p className="text-[10px] text-[#94A3B8]">
+                          Target: {formatCurrency(lt.targetCplMin, currency)}–{formatCurrency(lt.targetCplMax, currency)}
+                        </p>
+                      )}
+                      {platformCount > 0 && (
+                        <p className="text-[9px] text-[#94A3B8]/40">
+                          Platform claimed: {formatNumber(platformCount)}
+                        </p>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
           </div>
         </div>
 
@@ -795,18 +884,35 @@ export default function MinistryOverview() {
                 Daily Performance — Spend, Leads & CPL
               </h2>
               <p className="text-[11px] text-[#64748B] mt-0.5">
-                Bars = daily spend. Line = HubSpot-confirmed leads. Hover for cost per lead.
+                {chartSeries === "all" && "Bars = daily spend. Line = HubSpot-confirmed leads. Hover for cost per lead."}
+                {chartSeries === "spend" && "Daily ad spend across Meta and Google."}
+                {chartSeries === "leads" && "HubSpot-confirmed leads per day (paid source only)."}
+                {chartSeries === "cpl" && "Cost per HubSpot-confirmed lead. Lower is better."}
               </p>
             </div>
-            <div className="flex items-center gap-4 text-[10px] text-[#94A3B8]">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: ACCENT, opacity: 0.6 }} />
-                Spend
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-3 h-0.5 rounded-full bg-[#22C55E]" />
-                Leads (verified)
-              </span>
+            {/* Series toggle — pill group. Single source of truth for which
+                series the chart renders below; everything else (axes,
+                colours, legend) keys off chartSeries. */}
+            <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.06] rounded-lg p-0.5 text-[10px] font-semibold">
+              {([
+                { id: "all", label: "All" },
+                { id: "spend", label: "Spend" },
+                { id: "leads", label: "Leads" },
+                { id: "cpl", label: "CPL" },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.id}
+                  onClick={() => setChartSeries(opt.id)}
+                  className={cn(
+                    "px-2.5 py-1 rounded-md transition-colors uppercase tracking-wider",
+                    chartSeries === opt.id
+                      ? "bg-white/[0.08] text-white"
+                      : "text-[#94A3B8] hover:text-white",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
             </div>
           </div>
           <div className="h-[200px] sm:h-[280px]">
@@ -819,23 +925,33 @@ export default function MinistryOverview() {
                   tickLine={false}
                   axisLine={false}
                 />
-                <YAxis
-                  yAxisId="left"
-                  tick={{ fill: "#94A3B8", fontSize: 9 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={54}
-                  tickFormatter={(v) => formatCurrency(Number(v), currency).replace(/\.00$/, "")}
-                />
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tick={{ fill: "#94A3B8", fontSize: 9 }}
-                  tickLine={false}
-                  axisLine={false}
-                  width={32}
-                  allowDecimals={false}
-                />
+                {/* Left axis is currency for "all" / "spend" / "cpl"; we
+                    suppress it entirely on the leads-only view so the
+                    chart isn't dominated by a £-prefixed scale that has
+                    nothing to do with what's being drawn. */}
+                {chartSeries !== "leads" && (
+                  <YAxis
+                    yAxisId="left"
+                    tick={{ fill: "#94A3B8", fontSize: 9 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={54}
+                    tickFormatter={(v) => formatCurrency(Number(v), currency).replace(/\.00$/, "")}
+                  />
+                )}
+                {/* Right axis is the lead count, shown when leads are
+                    visible (in "all" or "leads" mode). */}
+                {(chartSeries === "all" || chartSeries === "leads") && (
+                  <YAxis
+                    yAxisId="right"
+                    orientation={chartSeries === "leads" ? "left" : "right"}
+                    tick={{ fill: "#94A3B8", fontSize: 9 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={32}
+                    allowDecimals={false}
+                  />
+                )}
                 <Tooltip
                   cursor={{ fill: "rgba(255,255,255,0.03)" }}
                   contentStyle={{
@@ -846,9 +962,9 @@ export default function MinistryOverview() {
                     padding: "8px 10px",
                   }}
                   labelStyle={{ color: "#94A3B8", fontWeight: 600, marginBottom: 4 }}
-                  // Custom formatter — we inject a derived CPL row after the raw
-                  // values so readers always see the efficiency number, not just
-                  // spend and leads in isolation.
+                  // Custom formatter — we inject a derived CPL row so readers
+                  // always see the efficiency number, not just spend / leads
+                  // in isolation.
                   formatter={(val: unknown, name: unknown, entry: { payload?: { spend?: number; verifiedLeads?: number } }) => {
                     if (name === "spend") {
                       return [formatCurrency(Number(val ?? 0), currency), "Spend"];
@@ -862,28 +978,54 @@ export default function MinistryOverview() {
                         "Leads (HubSpot)",
                       ];
                     }
+                    if (name === "verifiedCpl") {
+                      const cpl = Number(val ?? 0);
+                      return [cpl > 0 ? formatCurrency(cpl, currency) : "—", "CPL"];
+                    }
                     return [String(val), String(name)];
                   }}
                 />
-                <Bar
-                  yAxisId="left"
-                  dataKey="spend"
-                  fill={ACCENT}
-                  fillOpacity={0.55}
-                  radius={[3, 3, 0, 0]}
-                  name="spend"
-                  maxBarSize={28}
-                />
-                <Line
-                  yAxisId="right"
-                  type="monotone"
-                  dataKey="verifiedLeads"
-                  stroke="#22C55E"
-                  strokeWidth={2.25}
-                  dot={{ r: 2.5, fill: "#22C55E", stroke: "#12121A", strokeWidth: 1 }}
-                  activeDot={{ r: 4, fill: "#22C55E", stroke: "#12121A", strokeWidth: 2 }}
-                  name="verifiedLeads"
-                />
+                {/* Spend bars — visible in "all" and "spend" modes. */}
+                {(chartSeries === "all" || chartSeries === "spend") && (
+                  <Bar
+                    yAxisId="left"
+                    dataKey="spend"
+                    fill={ACCENT}
+                    fillOpacity={0.55}
+                    radius={[3, 3, 0, 0]}
+                    name="spend"
+                    maxBarSize={chartSeries === "spend" ? 40 : 28}
+                  />
+                )}
+                {/* Leads line — visible in "all" and "leads" modes. */}
+                {(chartSeries === "all" || chartSeries === "leads") && (
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="verifiedLeads"
+                    stroke="#22C55E"
+                    strokeWidth={2.25}
+                    dot={{ r: 2.5, fill: "#22C55E", stroke: "#12121A", strokeWidth: 1 }}
+                    activeDot={{ r: 4, fill: "#22C55E", stroke: "#12121A", strokeWidth: 2 }}
+                    name="verifiedLeads"
+                  />
+                )}
+                {/* CPL line — only in CPL-only mode. Drawn against the left
+                    £ axis so the scale auto-fits the cost range; the bars
+                    are hidden in this mode so the line owns the canvas. */}
+                {chartSeries === "cpl" && (
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="verifiedCpl"
+                    stroke={ACCENT}
+                    strokeWidth={2.25}
+                    dot={{ r: 2.5, fill: ACCENT, stroke: "#12121A", strokeWidth: 1 }}
+                    activeDot={{ r: 4, fill: ACCENT, stroke: "#12121A", strokeWidth: 2 }}
+                    name="verifiedCpl"
+                    connectNulls
+                  />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
