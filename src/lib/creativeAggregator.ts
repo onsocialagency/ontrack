@@ -18,6 +18,9 @@ import { scoreCreative, type ScoreResult } from "./creativeScoring";
 export interface LiveCreative {
   id: string;
   adId: string;
+  /** Ad-account ID — needed by IRG to bucket each creative against
+   *  the correct brand via assignIrgBrand(campaign, accountId). */
+  accountId: string;
   name: string;
   campaign: string;
   adSet: string;
@@ -73,6 +76,7 @@ export interface LiveCreative {
 interface CreativeAccumulator {
   name: string;
   adId: string;
+  accountId: string;
   campaign: string;
   adSet: string;
   source: string;
@@ -124,6 +128,7 @@ export function aggregateCreatives(
       map[key] = {
         name: r.ad_name || r.campaign,
         adId: r.ad_id || key,
+        accountId: r.account_id || "",
         campaign: r.campaign,
         adSet: r.adset || r.ad_group_name || "",
         source: r.source,
@@ -287,6 +292,7 @@ export function aggregateCreatives(
     return {
       id: key,
       adId: c.adId,
+      accountId: c.accountId,
       name: c.name,
       campaign: c.campaign,
       adSet: c.adSet || c.ad_group_name,

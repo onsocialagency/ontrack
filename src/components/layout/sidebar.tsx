@@ -89,7 +89,10 @@ function getIrgNav(slug: string): NavItem[] {
     { label: "Overview", href: base, icon: <LayoutDashboard size={20} /> },
     { label: "Suggestions", href: `${base}/suggestions`, icon: <Lightbulb size={20} /> },
     { label: "Campaigns", href: `${base}/campaigns`, icon: <Megaphone size={20} /> },
-    { label: "Events", href: `${base}/events`, icon: <Target size={20} /> },
+    // Events tab dropped — IRG runs brand-level always-on / awareness
+    // campaigns rather than per-event campaigns, so a per-event view
+    // had no genuine signal to show. If artist-tagged campaigns ship
+    // later this can come back; for now Campaigns covers the territory.
     { label: "Creative Lab", href: `${base}/creative-lab`, icon: <Palette size={20} /> },
     { label: "Reconciliation", href: `${base}/reconciliation`, icon: <GitCompare size={20} /> },
     { label: "Reports", href: `${base}/reports`, icon: <FileText size={20} /> },

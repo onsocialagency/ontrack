@@ -9,6 +9,8 @@ import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
+import { useVenue } from "@/lib/venue-context";
+import { assignIrgBrand } from "@/lib/irg-brands";
 import { getClientCreatives } from "@/lib/mock-data";
 import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
 import { isGoogleSource } from "@/lib/windsor";
@@ -24,7 +26,6 @@ import { parseAdName, detectChannelRole } from "@/lib/creativeParser";
 
 // Components
 import { CreativeCard } from "@/components/creative-lab/CreativeCard";
-import IrgCreativeLabView from "@/components/irg/IrgCreativeLabView";
 import { CreativeDetailModal } from "@/components/creative-lab/CreativeDetailModal";
 import { AccountHealthStrip } from "@/components/creative-lab/AccountHealthStrip";
 import { FilterBar } from "@/components/creative-lab/FilterBar";
@@ -54,12 +55,6 @@ const ITEMS_PER_PAGE = 20;
 
 export default function CreativeLabPage() {
   const { client: clientSlug } = useParams<{ client: string }>();
-  // IRG runs a brand-aware Meta + TikTok-separate view per the
-  // 29 April 2026 brief. Branch out before the rest of the generic
-  // hook chain runs so we don't pay for fetches IRG doesn't need.
-  if (clientSlug === "irg") {
-    return <IrgCreativeLabView />;
-  }
   const searchParams = useSearchParams();
   const initialSearch = searchParams.get("search") || "";
   const { days, preset, dateFrom, dateTo } = useDateRange();
@@ -247,6 +242,7 @@ export default function CreativeLabPage() {
       return {
         ...c,
         platform,
+        accountId: "",
         adSet: c.adSet || "",
         thumbnailUrl: c.thumbnailUrl || "",
         adBody: c.adBody || "",
@@ -280,9 +276,22 @@ export default function CreativeLabPage() {
 
   /* ── Filter social creatives ── */
 
+  // IRG brand filter — applied at the top of the chain so the
+  // platform / format / status / score / search filters all run on
+  // the brand-narrowed set. activeVenue comes from the URL-persisted
+  // venue context that the VenueTabs component writes to.
+  const { activeVenue } = useVenue();
+  const brandFilteredCreatives = useMemo(() => {
+    if (!isIrg || activeVenue === "all") return allCreatives;
+    return allCreatives.filter((c) => {
+      const brand = assignIrgBrand(c.campaign || "", c.accountId || "");
+      return brand === activeVenue;
+    });
+  }, [isIrg, activeVenue, allCreatives]);
+
   const socialCreatives = useMemo(() => {
-    return allCreatives.filter((c) => c.platform !== "google" || c.format !== "SEARCH");
-  }, [allCreatives]);
+    return brandFilteredCreatives.filter((c) => c.platform !== "google" || c.format !== "SEARCH");
+  }, [brandFilteredCreatives]);
 
   const filtered = useMemo(() => {
     let result = socialCreatives;
@@ -464,7 +473,7 @@ export default function CreativeLabPage() {
           {mainTab === "google_copy" && (
             <GoogleAdsCopyView
               googleAdsRows={googleAdsRows}
-              googleCreatives={allCreatives.filter((c) => c.platform === "google" || c.format === "SEARCH")}
+              googleCreatives={brandFilteredCreatives.filter((c) => c.platform === "google" || c.format === "SEARCH")}
               currency={currency}
               loading={windsorLoading}
               isLive={!!isLive}
