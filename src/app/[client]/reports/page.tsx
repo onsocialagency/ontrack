@@ -11,7 +11,7 @@ import { useDateRange } from "@/lib/date-range-context";
 import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
 import { sumConversions, rowConversions } from "@/lib/windsor";
 import { MinistryReportBuilder } from "@/components/reports/MinistryReportBuilder";
-import { cn } from "@/lib/utils";
+import { cn, getBillingPeriod } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { FileText, Send, Download, Clock, Loader2, Trash2, Eye } from "lucide-react";
@@ -149,6 +149,26 @@ export default function ReportsPage() {
     dateFrom: prevDateFrom,
     dateTo: prevDateTo,
   });
+
+  // Billing-period spend (Ministry: 29th–28th cycle) — locked to the
+  // contract cycle so the Budget Pacing summary in the report doesn't
+  // shift when the user changes the global picker. Same pattern as
+  // Overview tab.
+  const billingPeriod = useMemo(
+    () => getBillingPeriod(clientOrNull?.billingStartDay ?? 1),
+    [clientOrNull?.billingStartDay],
+  );
+  const { data: billingPeriodData } = useWindsor<WindsorRow[]>({
+    clientSlug,
+    type: "campaigns",
+    days,
+    dateFrom: billingPeriod.startISO,
+    dateTo: billingPeriod.endISO,
+  });
+  const billingPeriodSpend = useMemo(
+    () => (billingPeriodData ?? []).reduce((s, r) => s + (Number(r.spend) || 0), 0),
+    [billingPeriodData],
+  );
 
   const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
 
@@ -378,6 +398,11 @@ export default function ReportsPage() {
             prevPeriodLabel={prevDateFrom && prevDateTo ? `${fmtFullDate(new Date(prevDateFrom))} – ${fmtFullDate(new Date(prevDateTo))}` : undefined}
             currency={clientOrNull?.currency ?? "GBP"}
             defaultPeriodLabel={`${preset === "Custom" && dateFrom && dateTo ? `${fmtFullDate(new Date(dateFrom))} – ${fmtFullDate(new Date(dateTo))}` : `Last ${days} days`} (${clientLocale})`}
+            billingPeriodSpend={billingPeriodSpend}
+            billingPeriodLabel={billingPeriod.label}
+            monthlyBudget={clientOrNull?.monthlyBudget}
+            daysElapsed={billingPeriod.daysElapsed}
+            daysInPeriod={billingPeriod.daysInPeriod}
           />
         </div>
       ) : (

@@ -58,13 +58,24 @@ interface MetricToggles {
   // No manual override — Daisy: "no manual entries on Reports".
   cpa: boolean;
   narrative: boolean;
-  // Page-level metric strip
-  spendByPlatform: boolean;     // Meta vs Google split as a strip card
+  // Period-on-period comparison — when on, every numeric in the
+  // preview gets a small ▲/▼ delta beneath it. Lives in the metrics
+  // list (not a separate panel) so the whole report config is in one
+  // place.
+  vsPreviousPeriod: boolean;
+  // Page-level summary strips
+  spendByPlatform: boolean;     // Meta vs Google split
+  budgetPacing: boolean;        // % of monthly budget used in current cycle
+  topCampaigns: boolean;        // top 5 campaigns by spend
+  leadSourceBreakdown: boolean; // paid / organic / direct / other (only useful when leadSource="all")
   // Per-lead-type column metrics
   impressions: boolean;
   clicks: boolean;
   ctr: boolean;
   cpc: boolean;
+  cpm: boolean;          // cost per 1000 impressions
+  cvr: boolean;          // conversion rate (leads ÷ clicks)
+  frequency: boolean;    // Meta-only avg frequency per product
   qualifiedLeads: boolean;      // qualified count + qualification rate
 }
 
@@ -98,8 +109,29 @@ interface ReportRow {
   clicks: number;
   ctr: number; // %
   cpc: number; // £
+  cpm: number; // £ per 1,000 impressions
+  cvr: number; // % leads / clicks (link clicks for Meta where available)
+  frequency: number; // Meta-only avg; 0 for Google rows
   qualified: number; // matched contacts marked qualified by hs_lead_status / lifecyclestage
   qualificationRate: number; // %
+}
+
+interface CampaignSummary {
+  campaignName: string;
+  platform: "meta" | "google" | "tiktok" | "other";
+  spend: number;
+  leads: number;
+  cpl: number | null;
+}
+
+interface LeadSourceBreakdown {
+  paid: number;       // joined to a paid campaign
+  heuristicPaid: number; // hs_analytics_source = PAID_*; no campaign join
+  organic: number;
+  direct: number;
+  email: number;
+  referral: number;
+  other: number;
 }
 
 interface ReportPayload {
@@ -117,6 +149,10 @@ interface ReportPayload {
   // Page-level platform-split totals for the optional summary strip
   totals: { metaSpend: number; googleSpend: number; totalSpend: number };
   prevTotals: { metaSpend: number; googleSpend: number; totalSpend: number } | null;
+  // Optional page-level extras
+  topCampaigns: CampaignSummary[];        // top 5 by spend, populated when topCampaigns metric is on
+  budgetPacing: { spend: number; budget: number; pct: number; daysElapsed: number; daysInPeriod: number; periodLabel: string } | null;
+  leadSourceBreakdown: LeadSourceBreakdown | null;
 }
 
 // Sales sequencing card removed entirely — required manual entry which
@@ -159,6 +195,74 @@ function midpoint(min: number | null, max: number | null): number {
   return +(((min + max) / 2)).toFixed(2);
 }
 
+/** Top N campaigns by spend, with HubSpot-confirmed lead count and
+ *  blended CPL. Reuses reconcileByCampaign so the numbers agree with
+ *  the Campaigns tab. */
+function topCampaignsByLeads(
+  windsor: WindsorRow[],
+  contacts: HubSpotContact[],
+  platform: PlatformChoice,
+  limit = 5,
+): CampaignSummary[] {
+  const filtered = windsor.filter((r) => {
+    const p = classifyPlatform(r.source);
+    if (platform === "both") return p === "meta" || p === "google";
+    return p === platform;
+  });
+  const recon = reconcileByCampaign(contacts, filtered);
+  return recon
+    .slice()
+    .sort((a, b) => b.spend - a.spend)
+    .slice(0, limit)
+    .map((r) => ({
+      campaignName: r.campaignName,
+      platform: r.platform,
+      spend: r.spend,
+      leads: r.hubspotConfirmed ?? 0,
+      cpl: (r.hubspotConfirmed ?? 0) > 0 ? r.spend / (r.hubspotConfirmed as number) : null,
+    }));
+}
+
+/** Bucket every HubSpot contact by source channel for the page-level
+ *  Lead Source breakdown summary. Only meaningful when leadSource is
+ *  "all"; in "paid" mode the breakdown is trivially "100% paid". */
+function leadSourceBreakdown(
+  contacts: HubSpotContact[],
+  windsor: WindsorRow[],
+): LeadSourceBreakdown {
+  const breakdown: LeadSourceBreakdown = {
+    paid: 0,
+    heuristicPaid: 0,
+    organic: 0,
+    direct: 0,
+    email: 0,
+    referral: 0,
+    other: 0,
+  };
+  // Reuse reconcileLeads' classifier indirectly via getContactsByCampaign —
+  // anything that joined to a paid campaign is "paid". Everything else
+  // gets bucketed by the analyticsSource string.
+  const matched = getContactsByCampaign(contacts, windsor);
+  const matchedSet = new Set<HubSpotContact>();
+  for (const list of matched.values()) {
+    for (const c of list) matchedSet.add(c);
+  }
+  for (const c of contacts) {
+    if (matchedSet.has(c)) {
+      breakdown.paid += 1;
+      continue;
+    }
+    const src = (c.analyticsSource ?? "").toUpperCase();
+    if (src === "PAID_SEARCH" || src === "PAID_SOCIAL") breakdown.heuristicPaid += 1;
+    else if (src === "ORGANIC_SEARCH" || src === "ORGANIC_SOCIAL") breakdown.organic += 1;
+    else if (src === "DIRECT_TRAFFIC") breakdown.direct += 1;
+    else if (src === "EMAIL_MARKETING") breakdown.email += 1;
+    else if (src === "REFERRALS") breakdown.referral += 1;
+    else breakdown.other += 1;
+  }
+  return breakdown;
+}
+
 /** A contact looks "qualified" when HubSpot lead status has advanced past
  *  NEW/OPEN, OR when lifecyclestage has reached MQL or beyond. Same
  *  definition the Lead Generation tab uses — keep them in lock-step. */
@@ -197,10 +301,19 @@ function buildRows(
     return p === platform;
   });
 
-  // Per-product Windsor aggregates (spend / impressions / clicks).
-  type ProductAgg = { spend: number; impressions: number; clicks: number; linkClicks: number; metaImpressions: number };
+  // Per-product Windsor aggregates. metaImpressions tracked separately
+  // so the Frequency average is weighted by Meta impressions only
+  // (Google has no frequency concept).
+  type ProductAgg = {
+    spend: number;
+    impressions: number;
+    clicks: number;
+    linkClicks: number;
+    metaImpressions: number;
+    metaFrequencyTimesImpressions: number;
+  };
   const byType = new Map<string, ProductAgg>();
-  for (const lt of PRODUCT_LEAD_TYPES) byType.set(lt.id, { spend: 0, impressions: 0, clicks: 0, linkClicks: 0, metaImpressions: 0 });
+  for (const lt of PRODUCT_LEAD_TYPES) byType.set(lt.id, { spend: 0, impressions: 0, clicks: 0, linkClicks: 0, metaImpressions: 0, metaFrequencyTimesImpressions: 0 });
   let metaSpend = 0;
   let googleSpend = 0;
   for (const r of filtered) {
@@ -212,7 +325,12 @@ function buildRows(
     a.clicks += Number(r.clicks) || 0;
     a.linkClicks += Number(r.link_clicks) || 0;
     if (classifyPlatform(r.source) === "meta") {
-      a.metaImpressions += Number(r.impressions) || 0;
+      const imps = Number(r.impressions) || 0;
+      a.metaImpressions += imps;
+      // Impression-weighted frequency average — multiplies row freq by
+      // its impressions, divides total by total Meta impressions later.
+      // Falls back to 0 for rows missing frequency.
+      a.metaFrequencyTimesImpressions += (Number(r.frequency) || 0) * imps;
       metaSpend += Number(r.spend) || 0;
     } else if (classifyPlatform(r.source) === "google") {
       googleSpend += Number(r.spend) || 0;
@@ -305,6 +423,17 @@ function buildRows(
       const ctrClicks = a.linkClicks > 0 ? a.linkClicks : a.clicks;
       const ctr = a.impressions > 0 ? (ctrClicks / a.impressions) * 100 : 0;
       const cpc = ctrClicks > 0 ? actualSpend / ctrClicks : 0;
+      // CPM (cost per 1k impressions) — same impressions denominator
+      // used for CTR so the two columns line up.
+      const cpm = a.impressions > 0 ? (actualSpend / a.impressions) * 1000 : 0;
+      // Conversion rate: leads / clicks. Uses link-clicks when we have
+      // them (Meta) for parity with Ads Manager's "Link click → Lead"
+      // funnel; falls back to total clicks for Google-only rows.
+      const cvr = ctrClicks > 0 ? (leads / ctrClicks) * 100 : 0;
+      // Frequency: impression-weighted average across the product's
+      // Meta rows. 0 for Google-only products since Google doesn't
+      // expose frequency.
+      const frequency = a.metaImpressions > 0 ? a.metaFrequencyTimesImpressions / a.metaImpressions : 0;
       const qualificationRate = leads > 0 ? (qualified / leads) * 100 : 0;
       // CPA = spend ÷ qualified leads. Auto-derived only — no manual
       // override (Daisy: "no manual entries on Reports").
@@ -322,6 +451,9 @@ function buildRows(
         clicks: a.clicks,
         ctr,
         cpc,
+        cpm,
+        cvr,
+        frequency,
         qualified,
         qualificationRate,
       };
@@ -436,6 +568,15 @@ export interface MinistryReportBuilderProps {
   prevPeriodLabel?: string;
   currency: string;
   defaultPeriodLabel: string;
+  // Budget pacing data — fetched by the parent (which knows the
+  // billing-period dates) so the Reports view can offer pacing as an
+  // optional summary strip without re-implementing getBillingPeriod
+  // + a separate Windsor fetch here.
+  billingPeriodSpend?: number;
+  billingPeriodLabel?: string;
+  monthlyBudget?: number;
+  daysElapsed?: number;
+  daysInPeriod?: number;
 }
 
 export function MinistryReportBuilder({
@@ -446,6 +587,11 @@ export function MinistryReportBuilder({
   prevPeriodLabel,
   currency,
   defaultPeriodLabel,
+  billingPeriodSpend,
+  billingPeriodLabel,
+  monthlyBudget,
+  daysElapsed,
+  daysInPeriod,
 }: MinistryReportBuilderProps) {
   /* ── Controls state ──
      "Report type" toggle removed per Daisy — monthly reviews are done
@@ -463,21 +609,23 @@ export function MinistryReportBuilder({
     cplVsEstimated: true,
     cpa: false,
     narrative: true,
+    vsPreviousPeriod: false,
     spendByPlatform: true,
+    budgetPacing: false,
+    topCampaigns: false,
+    leadSourceBreakdown: false,
     impressions: false,
     clicks: false,
     ctr: false,
     cpc: false,
+    cpm: false,
+    cvr: false,
+    frequency: false,
     qualifiedLeads: false,
   });
-
-  /* ── vs previous-period comparison toggle.
-        When on, every numeric in the preview gets a small delta
-        indicator showing the period-on-period change (▲/▼ + %). The
-        previous period is the same length as the current one,
-        immediately preceding it (so a "Last 7 Days" view compares
-        against the seven days before that). ── */
-  const [compareEnabled, setCompareEnabled] = useState(false);
+  // The vs-previous toggle is now a metric checkbox; this alias keeps
+  // the existing render code readable.
+  const compareEnabled = metrics.vsPreviousPeriod;
 
   /* ── Free-text narrative per lead type ── */
   const [narrative, setNarrative] = useState<Record<string, string>>({});
@@ -518,6 +666,30 @@ export function MinistryReportBuilder({
         narrative[r.leadType.id]?.trim() || suggestNarrative(r, currency);
     }
     setNarrative(filledNarrative);
+    // Page-level extras computed here (rather than in buildRows) so
+    // they're optional — only paid for when the user has the relevant
+    // checkbox on. Saves a few iterations on each preview rerender.
+    const tops = metrics.topCampaigns
+      ? topCampaignsByLeads(windsorData ?? [], hubspotData ?? [], platform, 5)
+      : [];
+    const sourceBreakdown = metrics.leadSourceBreakdown && leadSource === "all"
+      ? leadSourceBreakdown(hubspotData ?? [], windsorData ?? [])
+      : null;
+    const pacing = metrics.budgetPacing
+      && billingPeriodSpend !== undefined
+      && monthlyBudget !== undefined
+      && billingPeriodLabel
+      && daysElapsed !== undefined
+      && daysInPeriod !== undefined
+      ? {
+          spend: billingPeriodSpend,
+          budget: monthlyBudget,
+          pct: monthlyBudget > 0 ? (billingPeriodSpend / monthlyBudget) * 100 : 0,
+          daysElapsed,
+          daysInPeriod,
+          periodLabel: billingPeriodLabel,
+        }
+      : null;
     const payload: ReportPayload = {
       periodLabel: defaultPeriodLabel,
       platform,
@@ -529,6 +701,9 @@ export function MinistryReportBuilder({
       narrative: filledNarrative,
       totals: liveTotals,
       prevTotals: compareEnabled && prevBuild ? prevBuild.totals : null,
+      topCampaigns: tops,
+      budgetPacing: pacing,
+      leadSourceBreakdown: sourceBreakdown,
     };
     setGenerated(payload);
     // Push to history
@@ -698,36 +873,47 @@ export function MinistryReportBuilder({
             <Checkbox label="CPL vs Estimated" value={metrics.cplVsEstimated} onChange={(v) => setMetrics((m) => ({ ...m, cplVsEstimated: v }))} />
             <Checkbox label="CPA (auto-derived)" value={metrics.cpa} onChange={(v) => setMetrics((m) => ({ ...m, cpa: v }))} />
             <Checkbox label="Narrative notes" value={metrics.narrative} onChange={(v) => setMetrics((m) => ({ ...m, narrative: v }))} />
+            <Checkbox
+              label={prevWindsorData ? "vs Previous period (▲/▼ %)" : "vs Previous period (data unavailable)"}
+              value={metrics.vsPreviousPeriod}
+              onChange={(v) => setMetrics((m) => ({ ...m, vsPreviousPeriod: v && !!prevWindsorData }))}
+            />
           </div>
-          <p className="text-[10px] uppercase tracking-wider text-[#94A3B8]/60 font-semibold mt-3 mb-1">Extra metrics</p>
+          <p className="text-[10px] uppercase tracking-wider text-[#94A3B8]/60 font-semibold mt-3 mb-1">Per-lead-type columns</p>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-            <Checkbox label="Spend split by platform" value={metrics.spendByPlatform} onChange={(v) => setMetrics((m) => ({ ...m, spendByPlatform: v }))} />
             <Checkbox label="Impressions" value={metrics.impressions} onChange={(v) => setMetrics((m) => ({ ...m, impressions: v }))} />
             <Checkbox label="Clicks" value={metrics.clicks} onChange={(v) => setMetrics((m) => ({ ...m, clicks: v }))} />
             <Checkbox label="CTR" value={metrics.ctr} onChange={(v) => setMetrics((m) => ({ ...m, ctr: v }))} />
             <Checkbox label="CPC" value={metrics.cpc} onChange={(v) => setMetrics((m) => ({ ...m, cpc: v }))} />
+            <Checkbox label="CPM" value={metrics.cpm} onChange={(v) => setMetrics((m) => ({ ...m, cpm: v }))} />
+            <Checkbox label="CVR (leads ÷ clicks)" value={metrics.cvr} onChange={(v) => setMetrics((m) => ({ ...m, cvr: v }))} />
+            <Checkbox label="Frequency (Meta)" value={metrics.frequency} onChange={(v) => setMetrics((m) => ({ ...m, frequency: v }))} />
             <Checkbox label="Qualified leads + rate" value={metrics.qualifiedLeads} onChange={(v) => setMetrics((m) => ({ ...m, qualifiedLeads: v }))} />
+          </div>
+          <p className="text-[10px] uppercase tracking-wider text-[#94A3B8]/60 font-semibold mt-3 mb-1">Page-level summaries</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+            <Checkbox label="Spend split by platform" value={metrics.spendByPlatform} onChange={(v) => setMetrics((m) => ({ ...m, spendByPlatform: v }))} />
+            <Checkbox
+              label={billingPeriodSpend !== undefined ? "Budget pacing (billing cycle)" : "Budget pacing (unavailable)"}
+              value={metrics.budgetPacing}
+              onChange={(v) => setMetrics((m) => ({ ...m, budgetPacing: v && billingPeriodSpend !== undefined }))}
+            />
+            <Checkbox label="Top 5 campaigns by spend" value={metrics.topCampaigns} onChange={(v) => setMetrics((m) => ({ ...m, topCampaigns: v }))} />
+            <Checkbox
+              label={leadSource === "all" ? "Lead source breakdown" : "Lead source breakdown (needs All HubSpot)"}
+              value={metrics.leadSourceBreakdown}
+              onChange={(v) => setMetrics((m) => ({ ...m, leadSourceBreakdown: v && leadSource === "all" }))}
+            />
           </div>
         </div>
 
-        {/* Period-on-period comparison toggle. When on, the preview
-            renders a small ▲/▼ delta beneath each numeric so Daisy can
-            read week-on-week change at a glance. Disabled when the
-            parent doesn't supply the previous-period data. */}
-        <div className="border-t border-white/[0.04] pt-3">
-          <Checkbox
-            label={prevWindsorData
-              ? "Show vs previous period (week-on-week / period-on-period)"
-              : "Previous-period comparison unavailable for this date range"}
-            value={compareEnabled}
-            onChange={(v) => setCompareEnabled(v && !!prevWindsorData)}
-          />
-          {compareEnabled && prevPeriodLabel && (
-            <p className="text-[10px] text-[#64748B] mt-1">
-              Comparing against: {prevPeriodLabel}
+        {compareEnabled && prevPeriodLabel && (
+          <div className="border-t border-white/[0.04] pt-3">
+            <p className="text-[10px] text-[#64748B]">
+              Comparison window: {prevPeriodLabel}
             </p>
-          )}
-        </div>
+          </div>
+        )}
 
       </section>
 
@@ -796,6 +982,116 @@ export function MinistryReportBuilder({
               </div>
             )}
 
+            {/* Budget pacing — billing-period-locked summary. Pulled
+                from the parent (which has access to billingStartDay).
+                Card colours flip amber when actual spend is way ahead
+                or behind the elapsed-days proportion of the budget. */}
+            {generated.budgetPacing && (() => {
+              const bp = generated.budgetPacing;
+              const expectedPct = bp.daysInPeriod > 0 ? (bp.daysElapsed / bp.daysInPeriod) * 100 : 0;
+              const onTrack = Math.abs(bp.pct - expectedPct) <= 10;
+              return (
+                <div className={cn(
+                  "border rounded-lg p-3",
+                  onTrack ? "bg-white/[0.02] border-white/[0.04]" : "bg-amber-500/5 border-amber-500/20",
+                )}>
+                  <div className="flex items-baseline justify-between flex-wrap gap-2">
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-[#94A3B8]">Budget pacing — {bp.periodLabel}</p>
+                      <p className="text-lg font-bold text-white tabular-nums mt-0.5">
+                        {formatCurrency(bp.spend, currency)}
+                        <span className="text-[10px] font-normal text-[#94A3B8] ml-1.5">of {formatCurrency(bp.budget, currency)}</span>
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] uppercase tracking-wider text-[#94A3B8]">Used</p>
+                      <p className={cn("text-lg font-bold tabular-nums", onTrack ? "text-white" : "text-amber-400")}>
+                        {bp.pct.toFixed(0)}%
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] uppercase tracking-wider text-[#94A3B8]">Day {bp.daysElapsed} of {bp.daysInPeriod}</p>
+                      <p className="text-lg font-bold text-white tabular-nums">{expectedPct.toFixed(0)}%<span className="text-[10px] font-normal text-[#94A3B8]"> expected</span></p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Top 5 campaigns by spend. Compact table — sits below the
+                main per-product table so the report flows from
+                "what's happening per product" → "where the money
+                is going per campaign". */}
+            {generated.topCampaigns.length > 0 && (
+              <div>
+                <h4 className="text-[10px] uppercase tracking-wider text-[#94A3B8] font-semibold mb-2">
+                  Top campaigns by spend
+                </h4>
+                <div className="overflow-x-auto bg-white/[0.02] border border-white/[0.04] rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="text-[10px] uppercase tracking-wider text-[#94A3B8]">
+                      <tr className="border-b border-white/[0.06]">
+                        <th className="text-left p-2">Campaign</th>
+                        <th className="text-left p-2">Platform</th>
+                        <th className="text-right p-2">Spend</th>
+                        <th className="text-right p-2">Leads</th>
+                        <th className="text-right p-2">CPL</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {generated.topCampaigns.map((c) => (
+                        <tr key={`${c.platform}-${c.campaignName}`} className="border-b border-white/[0.04]">
+                          <td className="p-2 text-white truncate max-w-[280px]" title={c.campaignName}>{c.campaignName}</td>
+                          <td className="p-2 text-[#94A3B8] capitalize">{c.platform}</td>
+                          <td className="p-2 text-right tabular-nums">{formatCurrency(c.spend, currency)}</td>
+                          <td className="p-2 text-right tabular-nums text-emerald-400">{c.leads > 0 ? formatNumber(c.leads) : "—"}</td>
+                          <td className="p-2 text-right tabular-nums">{c.cpl !== null ? formatCurrency(c.cpl, currency) : "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* Lead source breakdown — only meaningful when leadSource
+                is "all". Tells the team how much of HubSpot's volume
+                is paid vs organic vs direct etc., so a "down on leads"
+                week can be diagnosed (paid down? or organic dipped?). */}
+            {generated.leadSourceBreakdown && (() => {
+              const b = generated.leadSourceBreakdown;
+              const total = b.paid + b.heuristicPaid + b.organic + b.direct + b.email + b.referral + b.other;
+              const cells: { label: string; value: number; tone: string }[] = [
+                { label: "Paid (verified)", value: b.paid, tone: "text-emerald-400" },
+                { label: "Paid (heuristic)", value: b.heuristicPaid, tone: "text-emerald-400/60" },
+                { label: "Organic", value: b.organic, tone: "text-blue-400" },
+                { label: "Direct", value: b.direct, tone: "text-[#94A3B8]" },
+                { label: "Email", value: b.email, tone: "text-[#94A3B8]" },
+                { label: "Referral", value: b.referral, tone: "text-[#94A3B8]" },
+                { label: "Other", value: b.other, tone: "text-[#64748B]" },
+              ];
+              return (
+                <div className="bg-white/[0.02] border border-white/[0.04] rounded-lg p-3">
+                  <h4 className="text-[10px] uppercase tracking-wider text-[#94A3B8] font-semibold mb-2">
+                    Lead source breakdown ({formatNumber(total)} total)
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                    {cells.map((c) => (
+                      <div key={c.label}>
+                        <p className="text-[9px] uppercase tracking-wider text-[#94A3B8]">{c.label}</p>
+                        <p className={cn("text-base font-bold tabular-nums mt-0.5", c.tone)}>
+                          {formatNumber(c.value)}
+                          <span className="text-[10px] font-normal text-[#94A3B8] ml-1">
+                            ({total > 0 ? Math.round((c.value / total) * 100) : 0}%)
+                          </span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* Performance table */}
             <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[680px]">
@@ -812,6 +1108,9 @@ export function MinistryReportBuilder({
                     {metrics.clicks && <th className="text-right p-2">Clicks</th>}
                     {metrics.ctr && <th className="text-right p-2">CTR</th>}
                     {metrics.cpc && <th className="text-right p-2">CPC</th>}
+                    {metrics.cpm && <th className="text-right p-2">CPM</th>}
+                    {metrics.cvr && <th className="text-right p-2">CVR</th>}
+                    {metrics.frequency && <th className="text-right p-2">Freq.</th>}
                     {metrics.leadsVsPlanned && (
                       <>
                         <th className="text-right p-2">Leads</th>
@@ -869,6 +1168,26 @@ export function MinistryReportBuilder({
                         {metrics.cpc && (
                           <td className="p-2 text-right tabular-nums">
                             <CurrencyCell current={r.cpc} prev={prev?.cpc} currency={currency} invert />
+                          </td>
+                        )}
+                        {metrics.cpm && (
+                          <td className="p-2 text-right tabular-nums">
+                            <CurrencyCell current={r.cpm} prev={prev?.cpm} currency={currency} invert />
+                          </td>
+                        )}
+                        {metrics.cvr && (
+                          <td className="p-2 text-right tabular-nums">
+                            <PctCell current={r.clicks > 0 ? r.cvr : null} prev={prev && prev.clicks > 0 ? prev.cvr : null} />
+                          </td>
+                        )}
+                        {metrics.frequency && (
+                          <td className="p-2 text-right tabular-nums">
+                            {r.frequency > 0 ? r.frequency.toFixed(1) : "—"}
+                            {prev && prev.frequency > 0 && metrics.vsPreviousPeriod && (
+                              <span className="block text-[9px] font-normal mt-0.5 text-[#64748B]">
+                                prev {prev.frequency.toFixed(1)}
+                              </span>
+                            )}
                           </td>
                         )}
                         {metrics.leadsVsPlanned && (
