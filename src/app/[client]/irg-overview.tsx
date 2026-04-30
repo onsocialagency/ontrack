@@ -1,868 +1,638 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+/**
+ * IRG Overview tab — rebuilt to match the 29 April 2026 brief.
+ *
+ * Page layout (top to bottom):
+ *   1. Brand pill selector (All / IR Events / 528 / Pikes / Pool Club)
+ *   2. KPI row — 5 cards
+ *        Total Spend · Events Revenue · Hotel Revenue · Overall ROAS · Tickets Sold
+ *   3. Platform Spend sub-row — Meta / Google / TikTok (never summed)
+ *   4. Frequency alert strip (only when alerts exist)
+ *   5. Sales-by-platform table
+ *   6. Brand performance grid (4 cards) + Hotel read-only row beneath
+ *   7. Bottom row: Daily perf chart (left) + Rocks Club widget (right)
+ *
+ * Mock data throughout via `irg-mock.ts` so every component renders.
+ *
+ * Hotel data is read-only context. It's NEVER attributed to OnSocial
+ * campaigns and is rendered with muted styling.
+ */
+
+import { useMemo, useState } from "react";
 import { Header } from "@/components/layout/header";
-import { SuggestionWidget } from "@/components/suggestions/SuggestionWidget";
-import { KpiCard } from "@/components/ui/kpi-card";
-import { DataBlur } from "@/components/ui/data-blur";
-import { KpiDetailModal, type KpiDetailData } from "@/components/ui/kpi-detail-modal";
-import { useWindsor } from "@/lib/use-windsor";
-import { useDateRange } from "@/lib/date-range-context";
-import { useLocale } from "@/lib/locale-context";
-import { useVenue } from "@/lib/venue-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
-import type { WindsorRow } from "@/lib/windsor";
-import { sumConversions, rowConversions } from "@/lib/windsor";
+import { useVenue } from "@/lib/venue-context";
+import { cn } from "@/lib/utils";
 import {
   IRG_BRANDS,
-  IRG_BRAND_ORDER,
-  IRG_TOTAL_BUDGET,
-  IRG_DATA_GAPS,
-  assignIrgBrand,
-  isPreexistingCampaign,
-  getSeasonPacing,
-  type IrgBrandId,
+  PURCHASE_VALUE_FIX_DATE,
 } from "@/lib/irg-brands";
-import { formatCurrency, formatNumber, formatROAS, cn } from "@/lib/utils";
-import { MetricCell } from "@/components/ui/metric-cell";
-import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
-  Target, Eye, MousePointer, Percent,
-  AlertTriangle, Info, ChevronDown,
-} from "lucide-react";
-import { getCurrencyIcon } from "@/components/ui/currency-icon";
+  getIrgHeadlineKpis,
+  getSalesByPlatform,
+  getBrandGrid,
+  getFrequencyAlerts,
+  getRocksClubStats,
+  getDailyPerfSeries,
+} from "@/lib/irg-mock";
+import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
+import { AlertTriangle, Zap, ArrowUpRight, ArrowDownRight, Mail, Users } from "lucide-react";
 import {
   ResponsiveContainer,
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
+  CartesianGrid,
 } from "recharts";
 
-/* ── Types ── */
+/* ── Visual spec constants ── */
 
+const CARD_BG = "bg-[#1a1a18]";
+const CARD_BORDER = "border-white/[0.07]";
+const ACCENT_GREEN = "#1D9E75";
+const ACCENT_GOLD = "#C8A96E";
+const NEGATIVE = "#c0392b";
 
-interface BrandMetrics {
-  spend: number;
-  impressions: number;
-  clicks: number;
-  conversions: number;
-  ctr: number;
-  cpc: number;
-  cpa: number;
-  revenue: number;
-  metaSpend: number;
-  googleSpend: number;
-  metaRevenue: number;
-  googleRevenue: number;
-  metaConversions: number;
-  googleConversions: number;
-  campaigns: {
-    name: string;
-    brand: IrgBrandId;
-    platform: "Meta" | "Google";
-    spend: number;
-    impressions: number;
-    clicks: number;
-    conversions: number;
-    ctr: number;
-    cpc: number;
-    cpa: number;
-    status: "Live" | "Paused" | "Draft";
-    isPreexisting: boolean;
-  }[];
+/* ── Helpers ── */
+
+function fmtEur(value: number, opts: { compact?: boolean } = {}): string {
+  if (opts.compact && Math.abs(value) >= 1000) {
+    return `€${(value / 1000).toFixed(value >= 10_000 ? 0 : 1)}k`;
+  }
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(value);
 }
 
-/* ── Aggregation ── */
-
-function aggregateByBrand(rows: WindsorRow[]) {
-  const brands: Record<IrgBrandId | "UNKNOWN", BrandMetrics> = {
-    IR_HOTEL: { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0, ctr: 0, cpc: 0, cpa: 0, metaSpend: 0, googleSpend: 0, metaRevenue: 0, googleRevenue: 0, metaConversions: 0, googleConversions: 0, campaigns: [] },
-    IR_EVENTS: { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0, ctr: 0, cpc: 0, cpa: 0, metaSpend: 0, googleSpend: 0, metaRevenue: 0, googleRevenue: 0, metaConversions: 0, googleConversions: 0, campaigns: [] },
-    "528_VENUE": { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0, ctr: 0, cpc: 0, cpa: 0, metaSpend: 0, googleSpend: 0, metaRevenue: 0, googleRevenue: 0, metaConversions: 0, googleConversions: 0, campaigns: [] },
-    PIKES_PRESENTS: { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0, ctr: 0, cpc: 0, cpa: 0, metaSpend: 0, googleSpend: 0, metaRevenue: 0, googleRevenue: 0, metaConversions: 0, googleConversions: 0, campaigns: [] },
-    UNKNOWN: { spend: 0, impressions: 0, clicks: 0, conversions: 0, revenue: 0, ctr: 0, cpc: 0, cpa: 0, metaSpend: 0, googleSpend: 0, metaRevenue: 0, googleRevenue: 0, metaConversions: 0, googleConversions: 0, campaigns: [] },
-  };
-
-  // Aggregate by campaign
-  const campaignMap: Record<string, {
-    name: string;
-    accountId: string;
-    platform: string;
-    spend: number;
-    impressions: number;
-    clicks: number;
-    conversions: number;
-    revenue: number;
-    latestDate: string;
-    hasRecentSpend: boolean;
-  }> = {};
-
-  const today = new Date();
-  const sevenDaysAgo = new Date(today);
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-  // Decide once per range whether to use the Google primary→all_conversions
-  // fallback. Applied uniformly to every campaign/brand bucket below so the
-  // IRG numbers can't diverge from the KPI totals.
-  const useAllConvFallback = sumConversions(rows).usedGoogleAllFallback;
-
-  for (const r of rows) {
-    const key = `${r.campaign}__${r.account_id || ""}`;
-    if (!campaignMap[key]) {
-      campaignMap[key] = {
-        name: r.campaign,
-        accountId: r.account_id || "",
-        platform: r.source,
-        spend: 0,
-        impressions: 0,
-        clicks: 0,
-        conversions: 0,
-        revenue: 0,
-        latestDate: "",
-        hasRecentSpend: false,
-      };
-    }
-    const rc = rowConversions(r, useAllConvFallback);
-    campaignMap[key].spend += Number(r.spend) || 0;
-    campaignMap[key].impressions += Number(r.impressions) || 0;
-    campaignMap[key].clicks += Number(r.clicks) || 0;
-    campaignMap[key].conversions += rc.conversions;
-    campaignMap[key].revenue += rc.revenue;
-    if (r.date && r.date > campaignMap[key].latestDate) {
-      campaignMap[key].latestDate = r.date;
-    }
-    if (r.date && new Date(r.date) >= sevenDaysAgo && (Number(r.spend) || 0) > 0) {
-      campaignMap[key].hasRecentSpend = true;
-    }
-  }
-
-  // Assign campaigns to brands
-  for (const [, c] of Object.entries(campaignMap)) {
-    const brandId = assignIrgBrand(c.name, c.accountId);
-    const brand = brands[brandId] || brands.UNKNOWN;
-    const isMeta = c.platform === "facebook" || c.platform === "meta" || c.platform === "instagram";
-
-    brand.spend += c.spend;
-    brand.impressions += c.impressions;
-    brand.clicks += c.clicks;
-    brand.conversions += c.conversions;
-    brand.revenue += c.revenue;
-    if (isMeta) {
-      brand.metaSpend += c.spend;
-      brand.metaRevenue += c.revenue;
-      brand.metaConversions += c.conversions;
-    } else {
-      brand.googleSpend += c.spend;
-      brand.googleRevenue += c.revenue;
-      brand.googleConversions += c.conversions;
-    }
-
-    const status: "Live" | "Paused" | "Draft" = c.hasRecentSpend ? "Live" : c.spend > 0 ? "Paused" : "Draft";
-
-    brand.campaigns.push({
-      name: c.name,
-      brand: brandId as IrgBrandId,
-      platform: isMeta ? "Meta" : "Google",
-      spend: c.spend,
-      impressions: c.impressions,
-      clicks: c.clicks,
-      conversions: c.conversions,
-      ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
-      cpc: c.clicks > 0 ? c.spend / c.clicks : 0,
-      cpa: c.conversions > 0 ? c.spend / c.conversions : 0,
-      status,
-      isPreexisting: isPreexistingCampaign(c.name),
-    });
-  }
-
-  // Calculate derived metrics
-  for (const b of Object.values(brands)) {
-    b.ctr = b.impressions > 0 ? (b.clicks / b.impressions) * 100 : 0;
-    b.cpc = b.clicks > 0 ? b.spend / b.clicks : 0;
-    b.cpa = b.conversions > 0 ? b.spend / b.conversions : 0;
-    b.campaigns.sort((a, b) => b.spend - a.spend);
-  }
-
-  return brands;
+function fmtEurPrecise(value: number): string {
+  return new Intl.NumberFormat("en-GB", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(value);
 }
 
-function aggregateDaily(rows: WindsorRow[], fmtDate: (iso: string) => string) {
-  const useAllConvFallback = sumConversions(rows).usedGoogleAllFallback;
-  const byDate: Record<string, { date: string; spend: number; impressions: number; clicks: number; conversions: number }> = {};
-  for (const r of rows) {
-    const d = r.date;
-    if (!d) continue;
-    if (!byDate[d]) byDate[d] = { date: d, spend: 0, impressions: 0, clicks: 0, conversions: 0 };
-    byDate[d].spend += Number(r.spend) || 0;
-    byDate[d].impressions += Number(r.impressions) || 0;
-    byDate[d].clicks += Number(r.clicks) || 0;
-    byDate[d].conversions += rowConversions(r, useAllConvFallback).conversions;
-  }
-  return Object.values(byDate)
-    .sort((a, b) => a.date.localeCompare(b.date))
-    .map((d) => ({ ...d, date: fmtDate(d.date) }));
+function fmtNumber(value: number): string {
+  return new Intl.NumberFormat("en-GB").format(value);
 }
 
-/* ── Component ── */
+/* ── Page ── */
 
 export default function IrgOverview() {
-  const { days, preset, dateFrom, dateTo, compareEnabled, prevDateFrom, prevDateTo } = useDateRange();
-  const { shortDate: fmtDate } = useLocale();
-  const { activeVenue: activeTab } = useVenue();
-  const [kpiDetail, setKpiDetail] = useState<KpiDetailData | null>(null);
-  const closeKpiDetail = useCallback(() => setKpiDetail(null), []);
-  const [showGaps, setShowGaps] = useState(true);
-  const [gapsOpen, setGapsOpen] = useState(false);
+  const { activeVenue } = useVenue();
+  const kpis = useMemo(() => getIrgHeadlineKpis(activeVenue), [activeVenue]);
+  const platformRows = useMemo(() => getSalesByPlatform(), []);
+  const brandRows = useMemo(() => getBrandGrid(), []);
+  const alerts = useMemo(() => getFrequencyAlerts(), []);
+  const rocks = useMemo(() => getRocksClubStats(), []);
+  const dailySeries = useMemo(() => getDailyPerfSeries(14), []);
 
-  const { data: windsorData, source: dataSource, loading } = useWindsor<WindsorRow[]>({
-    clientSlug: "irg",
-    type: "campaigns",
-    days,
-    ...(preset === "Custom" ? { dateFrom, dateTo } : {}),
-  });
-
-  // Previous-period data for period-over-period deltas
-  const { data: prevWindsorData } = useWindsor<WindsorRow[]>({
-    clientSlug: "irg",
-    type: "campaigns",
-    days,
-    dateFrom: prevDateFrom,
-    dateTo: prevDateTo,
-  });
-
-  const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
-  const rows = isLive ? windsorData : [];
-  const prevRows = compareEnabled && Array.isArray(prevWindsorData) ? prevWindsorData : [];
-
-  // Aggregate
-  const brandMetrics = useMemo(() => aggregateByBrand(rows), [rows]);
-  const dailyData = useMemo(() => aggregateDaily(rows, fmtDate), [rows, fmtDate]);
-
-  // Totals
-  const totalSpend = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].spend, 0), [brandMetrics]);
-  const totalImpressions = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].impressions, 0), [brandMetrics]);
-  const totalClicks = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].clicks, 0), [brandMetrics]);
-  const totalConversions = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].conversions, 0), [brandMetrics]);
-  const totalMetaSpend = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].metaSpend, 0), [brandMetrics]);
-  const totalGoogleSpend = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].googleSpend, 0), [brandMetrics]);
-  const totalMetaRevenue = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].metaRevenue, 0), [brandMetrics]);
-  const totalGoogleRevenue = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].googleRevenue, 0), [brandMetrics]);
-  const totalMetaConversions = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].metaConversions, 0), [brandMetrics]);
-  const totalGoogleConversions = useMemo(() => IRG_BRAND_ORDER.reduce((s, id) => s + brandMetrics[id].googleConversions, 0), [brandMetrics]);
-
-  const blendedCtr = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
-  const blendedCpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
-  const budgetUsedPct = IRG_TOTAL_BUDGET > 0 ? (totalSpend / IRG_TOTAL_BUDGET) * 100 : 0;
-
-  // Previous-period aggregates (computed once per prevRows; scope-resolved below once activeMetrics is known)
-  const prevBrandMetrics = useMemo(() => aggregateByBrand(prevRows), [prevRows]);
-
-  // Season pacing
-  const seasonPacing = useMemo(() => getSeasonPacing(totalSpend, IRG_TOTAL_BUDGET), [totalSpend]);
-
-  // Active brand data
-  const activeBrand = activeTab !== "all" ? IRG_BRANDS[activeTab] : null;
-  const activeMetrics = activeTab !== "all" ? brandMetrics[activeTab] : null;
-  const activeBudget = activeBrand?.budget || IRG_TOTAL_BUDGET;
-  const activeSpend = activeMetrics?.spend || totalSpend;
-
-  // Previous-period scope-resolved metrics (all brands sum vs single brand)
-  const prev = useMemo(() => {
-    const agg = (key: "spend" | "impressions" | "clicks" | "conversions") => {
-      if (activeTab !== "all") {
-        const v = prevBrandMetrics[activeTab]?.[key];
-        return typeof v === "number" ? v : 0;
-      }
-      return IRG_BRAND_ORDER.reduce((s, id) => {
-        const v = prevBrandMetrics[id]?.[key];
-        return s + (typeof v === "number" ? v : 0);
-      }, 0);
-    };
-    const spend = agg("spend");
-    const impressions = agg("impressions");
-    const clicks = agg("clicks");
-    const conversions = agg("conversions");
-    const ctr = impressions > 0 ? (clicks / impressions) * 100 : 0;
-    const cpa = conversions > 0 ? spend / conversions : 0;
-    return { spend, impressions, clicks, conversions, ctr, cpa };
-  }, [prevBrandMetrics, activeTab]);
-
-  // Pct-change delta. Returns 0 when prev is 0 or compare disabled.
-  const pctDelta = (cur: number, previous: number): number => {
-    if (!compareEnabled || !previous || previous === 0) return 0;
-    return ((cur - previous) / previous) * 100;
-  };
-
-  const scopedImpressions = activeTab === "all" ? totalImpressions : (activeMetrics?.impressions ?? 0);
-  const scopedClicks = activeTab === "all" ? totalClicks : (activeMetrics?.clicks ?? 0);
-  const scopedCpa = activeTab === "all" ? blendedCpa : (activeMetrics?.cpa ?? 0);
-  const scopedCtr = activeTab === "all" ? blendedCtr : (activeMetrics?.ctr ?? 0);
-
-  const deltaSpend = pctDelta(activeSpend, prev.spend);
-  const deltaImpressions = pctDelta(scopedImpressions, prev.impressions);
-  const deltaClicks = pctDelta(scopedClicks, prev.clicks);
-  const deltaCpa = pctDelta(scopedCpa, prev.cpa);
-  const deltaCtr = pctDelta(scopedCtr, prev.ctr);
-
-  // Sparklines
-  const sparklines = useMemo(() => ({
-    spend: dailyData.map((d) => ({ v: d.spend, label: d.date })),
-    impressions: dailyData.map((d) => ({ v: d.impressions, label: d.date })),
-    clicks: dailyData.map((d) => ({ v: d.clicks, label: d.date })),
-    conversions: dailyData.map((d) => ({ v: d.conversions, label: d.date })),
-  }), [dailyData]);
-
-  // KPI detail builder
-  const currentLabel = dailyData.length > 0
-    ? `${dailyData[0].date} - ${dailyData[dailyData.length - 1].date}`
-    : "Current period";
-
-  const platformBreakdown = [
-    { name: "Meta Ads", value: totalMetaSpend, formatted: formatCurrency(totalMetaSpend, "EUR"), color: "#3B82F6" },
-    { name: "Google Ads", value: totalGoogleSpend, formatted: formatCurrency(totalGoogleSpend, "EUR"), color: "#22C55E" },
-  ];
-
-  const buildDetail = (
-    title: string,
-    icon: React.ReactNode,
-    currentValue: string,
-    dailyKey: "spend" | "impressions" | "clicks" | "conversions",
-    breakdown: { name: string; value: number; formatted: string; color: string }[],
-    accentColor: string,
-    fmtFn?: (v: number) => string,
-  ): KpiDetailData => ({
-    title,
-    icon,
-    currentValue,
-    currentLabel,
-    dailyData: dailyData.map((d) => ({ date: d.date, current: d[dailyKey] })),
-    breakdown,
-    accentColor,
-    formatValue: fmtFn,
-  });
-
-  // Campaigns for current tab
-  const campaigns = useMemo(() => {
-    if (activeTab === "all") {
-      return IRG_BRAND_ORDER.flatMap((id) => brandMetrics[id].campaigns);
-    }
-    return brandMetrics[activeTab]?.campaigns || [];
-  }, [activeTab, brandMetrics]);
-
-  // Brand spend pie chart data
-  const brandPieData = useMemo(() =>
-    IRG_BRAND_ORDER.map((id) => ({
-      name: IRG_BRANDS[id].shortLabel,
-      value: brandMetrics[id].spend,
-      color: IRG_BRANDS[id].color,
-    })).filter((d) => d.value > 0),
-  [brandMetrics]);
+  const [chartMetric, setChartMetric] = useState<"spend" | "sales" | "cpa">("spend");
 
   return (
     <>
-      <Header
-        title="Ibiza Rocks Group"
-        showAttribution
-        dataBadge={{ loading, isLive: !!isLive }}
-        filterRow={<VenueTabs />}
-      />
+      <Header title="Overview" />
 
-      <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 overflow-y-auto">
+      <div
+        className="flex-1 px-4 sm:px-6 py-4 sm:py-6 space-y-5 overflow-y-auto"
+        style={{ backgroundColor: "#0e0e0c", fontFamily: "var(--font-dm-sans, system-ui)" }}
+      >
+        {/* Brand selector */}
+        <VenueTabs />
 
-        <DataBlur isBlurred={dataSource !== "windsor" && !loading} isLoading={loading} className="space-y-4 sm:space-y-5">
-        {/* ── Data Gap Warnings (collapsible) ── */}
-        {showGaps && (() => {
-          const gaps = IRG_DATA_GAPS.filter((g) => g.severity === "warning").slice(0, 2);
-          if (gaps.length === 0) return null;
-          return (
-            <div className="rounded-xl bg-amber-500/[0.08] border border-amber-500/[0.15] overflow-hidden">
-              <div className="flex items-center gap-2 px-3 sm:px-4 py-2.5 sm:py-3">
-                <button
-                  type="button"
-                  onClick={() => setGapsOpen((v) => !v)}
-                  className="flex items-center gap-2 flex-1 min-w-0 text-left"
-                  aria-expanded={gapsOpen}
-                  aria-controls="irg-data-gaps-body"
-                >
-                  <AlertTriangle size={14} className="text-amber-400 flex-shrink-0" />
-                  <span className="text-xs font-semibold text-amber-300 truncate">
-                    {gaps.length} data gap{gaps.length > 1 ? "s" : ""} to review
-                  </span>
-                  <ChevronDown
-                    size={14}
-                    className={cn(
-                      "text-amber-400/70 flex-shrink-0 transition-transform ml-auto",
-                      gapsOpen && "rotate-180",
-                    )}
-                  />
-                </button>
-                <button
-                  onClick={() => setShowGaps(false)}
-                  className="text-amber-400/50 hover:text-amber-400 text-xs flex-shrink-0"
-                >
-                  Dismiss
-                </button>
-              </div>
-              {gapsOpen && (
-                <div
-                  id="irg-data-gaps-body"
-                  className="border-t border-amber-500/[0.15] divide-y divide-amber-500/[0.12]"
-                >
-                  {gaps.map((gap) => (
-                    <div key={gap.id} className="px-3 sm:px-4 py-2.5 sm:py-3">
-                      <p className="text-xs font-semibold text-amber-300">{gap.title}</p>
-                      <p className="text-[11px] text-amber-400/70 mt-0.5">{gap.detail}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })()}
+        {/* Pre-28-April caveat — global note for any revenue spanning the
+            fix date. Lives here so every revenue card downstream
+            inherits the context. */}
+        <PreFixDateNote fixedOn={PURCHASE_VALUE_FIX_DATE} />
 
-        {/* ── KPI Grid ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-          <KpiCard loading={loading}
-            title="Season Budget"
-            value={formatCurrency(activeBudget, "EUR")}
-            delta={0}
-            icon={getCurrencyIcon("EUR", 14)}
-            tooltip={activeTab === "all" ? "Total IRG season budget (Mar–Oct 2026)" : `${activeBrand?.label} season budget`}
-            subLabel={`${budgetUsedPct.toFixed(1)}% used · €${formatNumber(activeBudget - activeSpend)} remaining`}
-            accentColor="#3B82F6"
-            onClick={() => setKpiDetail(buildDetail(
-              "Season Budget", getCurrencyIcon("EUR", 18),
-              formatCurrency(activeBudget, "EUR"),
-              "spend", platformBreakdown, "#3B82F6",
-              (v) => formatCurrency(v, "EUR"),
-            ))}
+        {/* 1. KPI Row */}
+        <SectionLabel>Headline</SectionLabel>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+          <Kpi
+            label="Total Spend"
+            value={fmtEur(kpis.totalSpend)}
+            deltaPct={kpis.totalSpendDeltaPct}
+            deltaUnit="vs last week"
           />
-          <KpiCard loading={loading}
-            title="Total Spend"
-            value={formatCurrency(activeSpend, "EUR")}
-            delta={deltaSpend}
-            icon={getCurrencyIcon("EUR", 14)}
-            tooltip="Total ad spend across Meta + Google Ads"
-            sparkline={sparklines.spend}
-            accentColor="#FF6A41"
-            onClick={() => setKpiDetail(buildDetail(
-              "Total Spend", getCurrencyIcon("EUR", 18),
-              formatCurrency(activeSpend, "EUR"),
-              "spend", platformBreakdown, "#FF6A41",
-              (v) => formatCurrency(v, "EUR"),
-            ))}
+          <Kpi
+            label="Events Revenue"
+            value={fmtEur(kpis.eventsRevenue)}
+            deltaPct={kpis.eventsRevenueDeltaPct}
+            deltaUnit="vs last week"
+            sub="Four Venues confirmed"
           />
-          <KpiCard loading={loading}
-            title={totalConversions > 0 ? "Blended CPA" : "CPA"}
-            value={totalConversions > 0 ? formatCurrency(activeTab === "all" ? blendedCpa : (activeMetrics?.cpa || 0), "EUR") : "—"}
-            delta={deltaCpa}
-            invertDelta
-            icon={<Target size={14} />}
-            tooltip={totalConversions > 0 ? "Total spend / total conversions" : "Conversion tracking not fully set up"}
-            sparkline={sparklines.conversions}
-            accentColor="#F59E0B"
-            subLabel={totalConversions === 0 ? "Pending conversion tracking" : undefined}
-            onClick={() => setKpiDetail(buildDetail(
-              "Blended CPA", <Target size={18} />,
-              totalConversions > 0 ? formatCurrency(blendedCpa, "EUR") : "—",
-              "conversions", platformBreakdown, "#F59E0B",
-              (v) => formatCurrency(v, "EUR"),
-            ))}
+          <Kpi
+            label="Hotel Revenue"
+            value={fmtEur(kpis.hotelRevenue)}
+            deltaPct={kpis.hotelRevenueDeltaPct}
+            deltaUnit="vs last week"
+            sub="Up Hotel / Google · not OnSocial campaigns"
+            muted
           />
-          <KpiCard loading={loading}
-            title="Impressions"
-            value={formatNumber(activeTab === "all" ? totalImpressions : (activeMetrics?.impressions || 0))}
-            delta={deltaImpressions}
-            icon={<Eye size={14} />}
-            tooltip="Total ad impressions"
-            sparkline={sparklines.impressions}
-            accentColor="#06B6D4"
-            onClick={() => setKpiDetail(buildDetail(
-              "Impressions", <Eye size={18} />,
-              formatNumber(activeTab === "all" ? totalImpressions : (activeMetrics?.impressions || 0)),
-              "impressions", platformBreakdown, "#06B6D4",
-              (v) => formatNumber(v),
-            ))}
+          <Kpi
+            label="Overall ROAS"
+            value={`${kpis.overallRoas.toFixed(1)}x`}
+            deltaAbsolute={kpis.overallRoasDelta}
+            deltaSuffix="x"
+            sub="Total revenue ÷ OnSocial spend"
           />
-          <KpiCard loading={loading}
-            title="Clicks"
-            value={formatNumber(activeTab === "all" ? totalClicks : (activeMetrics?.clicks || 0))}
-            delta={deltaClicks}
-            icon={<MousePointer size={14} />}
-            tooltip="Total ad clicks"
-            sparkline={sparklines.clicks}
-            accentColor="#8B5CF6"
-            onClick={() => setKpiDetail(buildDetail(
-              "Clicks", <MousePointer size={18} />,
-              formatNumber(activeTab === "all" ? totalClicks : (activeMetrics?.clicks || 0)),
-              "clicks", platformBreakdown, "#8B5CF6",
-              (v) => formatNumber(v),
-            ))}
-          />
-          <KpiCard loading={loading}
-            title="Blended CTR"
-            value={`${(activeTab === "all" ? blendedCtr : (activeMetrics?.ctr || 0)).toFixed(2)}%`}
-            delta={deltaCtr}
-            icon={<Percent size={14} />}
-            tooltip="Clicks / Impressions across all platforms"
-            accentColor="#22C55E"
-            onClick={() => setKpiDetail(buildDetail(
-              "Blended CTR", <Percent size={18} />,
-              `${(activeTab === "all" ? blendedCtr : (activeMetrics?.ctr || 0)).toFixed(2)}%`,
-              "clicks", platformBreakdown, "#22C55E",
-              (v) => `${v.toFixed(2)}%`,
-            ))}
+          <Kpi
+            label="Tickets Sold"
+            value={fmtNumber(kpis.ticketsSold)}
+            deltaAbsolute={kpis.ticketsDelta}
+            deltaSuffix=""
+            sub="Four Venues"
           />
         </div>
 
-        {/* ── Budget Pacing + Platform Split ── */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-5">
-          {/* Season Budget Pacing */}
-          <div className="bg-[#12121A] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-4 sm:space-y-5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">Season Budget Pacing</h2>
-              <span className={cn(
-                "px-2.5 py-1 rounded-lg text-[11px] font-bold",
-                seasonPacing.status === "on_track" && "bg-[#22C55E]/10 text-[#22C55E]",
-                seasonPacing.status === "over_pacing" && "bg-[#EF4444]/10 text-[#EF4444]",
-                seasonPacing.status === "under_pacing" && "bg-amber-500/10 text-amber-400",
-              )}>
-                {seasonPacing.status === "on_track" ? "On Track" : seasonPacing.status === "over_pacing" ? "Over-pacing" : "Under-pacing"}
+        {/* 2. Platform Spend (never summed) */}
+        <SectionLabel>Platform spend (separate budgets)</SectionLabel>
+        <div className="grid grid-cols-3 gap-3 sm:gap-4">
+          <PlatformCard
+            label="Meta"
+            value={fmtEur(kpis.metaSpend)}
+            sub="OnSocial · live"
+            icon={<MetaIcon size={14} />}
+          />
+          <PlatformCard
+            label="Google"
+            value={fmtEur(kpis.googleSpend)}
+            sub="OnSocial · live"
+            icon={<GoogleIcon size={14} />}
+          />
+          <PlatformCard
+            label="TikTok"
+            value="—"
+            sub="Pre-launch — tracking blocker"
+            preLaunch
+          />
+        </div>
+
+        {/* 3. Frequency alerts */}
+        {alerts.length > 0 && (
+          <div className="space-y-2">
+            <SectionLabel>Frequency alerts</SectionLabel>
+            <div className="space-y-2">
+              {alerts.map((a) => (
+                <FrequencyAlertRow key={a.id} alert={a} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* 4. Sales by platform */}
+        <div className={cn("rounded-[10px] border overflow-hidden", CARD_BG, CARD_BORDER)}>
+          <div className="px-4 py-3 border-b border-white/[0.06]">
+            <SectionLabel>Sales by platform</SectionLabel>
+            <p className="text-[11px] text-white/40 mt-1">
+              Source of truth: GA4 (Four Venues confirmed).
+              &quot;Sales&quot; = ticket / day-pass / VIP purchases. Never combine across rows.
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-white/[0.02] text-[10px] uppercase tracking-[0.06em] text-white/40">
+                <tr>
+                  <th className="text-left px-4 py-2">Platform</th>
+                  <th className="text-right px-3 py-2">Spend</th>
+                  <th className="text-right px-3 py-2">Sales</th>
+                  <th className="text-right px-3 py-2">Revenue</th>
+                  <th className="text-right px-3 py-2">ROAS</th>
+                  <th className="text-right px-3 py-2">CPA</th>
+                  <th className="text-right px-3 py-2">Target CPA</th>
+                </tr>
+              </thead>
+              <tbody>
+                {platformRows.map((r) => (
+                  <tr key={r.platform} className="border-t border-white/[0.04]">
+                    <td className="px-4 py-3 text-white/85 font-medium">{r.platform}</td>
+                    <td className="px-3 py-3 text-right tabular-nums text-white/85">
+                      {r.spend !== null ? fmtEur(r.spend) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-white/85">
+                      {r.sales !== null ? fmtNumber(r.sales) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-white/85">
+                      {r.revenue !== null ? fmtEur(r.revenue) : (
+                        <span className="text-white/30">{r.preLaunch ? "Pre-launch" : "—"}</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-white/85">
+                      {r.roas !== null ? `${r.roas.toFixed(2)}x` : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-white/85">
+                      {r.cpa !== null ? fmtEurPrecise(r.cpa) : "—"}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <NotProvidedPill />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 5. Brand performance grid */}
+        <SectionLabel>Brand performance</SectionLabel>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
+          {brandRows
+            .filter((r) => r.brand !== "IR_HOTEL")
+            .map((r) => (
+              <BrandCard key={r.brand} row={r} />
+            ))}
+        </div>
+
+        {/* Hotel — read-only row below the grid */}
+        {brandRows.find((r) => r.brand === "IR_HOTEL") && (
+          <HotelReadOnlyRow row={brandRows.find((r) => r.brand === "IR_HOTEL")!} />
+        )}
+
+        {/* 6. Bottom row: chart + Rocks Club */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
+          {/* Daily performance chart */}
+          <div className={cn("rounded-[10px] border p-4", CARD_BG, CARD_BORDER)}>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <SectionLabel>Daily performance · 14 days</SectionLabel>
+              <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.06] rounded-lg p-0.5 text-[10px] font-semibold uppercase tracking-[0.06em]">
+                {(["spend", "sales", "cpa"] as const).map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setChartMetric(m)}
+                    className={cn(
+                      "px-3 py-1 rounded-md transition-colors",
+                      chartMetric === m
+                        ? "bg-[#1D9E75] text-white"
+                        : "text-white/40 hover:text-white",
+                    )}
+                  >
+                    {m}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="h-[260px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={dailySeries} margin={{ top: 8, right: 16, bottom: 0, left: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 9 }}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(v: string) => v.slice(5)}
+                  />
+                  <YAxis
+                    tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 9 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={48}
+                    tickFormatter={(v: number) =>
+                      chartMetric === "sales"
+                        ? fmtNumber(v)
+                        : `€${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}`
+                    }
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#1a1a18",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "8px",
+                      fontSize: 11,
+                    }}
+                    labelStyle={{ color: "rgba(255,255,255,0.5)" }}
+                    formatter={(val: unknown) => {
+                      const n = Number(val ?? 0);
+                      if (chartMetric === "sales") return [fmtNumber(n), "Sales"];
+                      if (chartMetric === "cpa") return [fmtEurPrecise(n), "CPA"];
+                      return [fmtEur(n), "Spend"];
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey={chartMetric}
+                    stroke={ACCENT_GREEN}
+                    strokeWidth={2.25}
+                    dot={{ r: 2.5, fill: ACCENT_GREEN, stroke: "#0e0e0c", strokeWidth: 1 }}
+                    activeDot={{ r: 4, fill: ACCENT_GREEN, stroke: "#0e0e0c", strokeWidth: 2 }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Rocks Club widget */}
+          <div
+            className="rounded-[10px] border p-4 flex flex-col gap-3"
+            style={{
+              backgroundColor: "#1a1a18",
+              borderColor: "rgba(200,169,110,0.25)",
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <Mail size={13} style={{ color: ACCENT_GOLD }} />
+              <span className="text-[10px] uppercase tracking-[0.06em] font-semibold" style={{ color: ACCENT_GOLD }}>
+                Rocks Club sign-ups
               </span>
             </div>
-
-            {/* Per-brand pacing bars */}
-            <div className="space-y-4">
-              {IRG_BRAND_ORDER.map((id) => {
-                const brand = IRG_BRANDS[id];
-                const metrics = brandMetrics[id];
-                const pct = brand.budget > 0 ? Math.min((metrics.spend / brand.budget) * 100, 100) : 0;
+            <div>
+              <p className="text-[28px] font-semibold tabular-nums" style={{ color: "#f0ede8" }}>
+                {fmtNumber(rocks.total)}
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: ACCENT_GREEN }}>
+                ▲ {fmtNumber(rocks.weekDelta)} this week
+              </p>
+            </div>
+            <p className="text-[11px] text-white/45 leading-relaxed">
+              Email captures feeding hotel funnel. List size 80–100k.
+              March email campaign drove £40k hotel revenue.
+            </p>
+            {/* Mini funnel */}
+            <div className="space-y-1.5 pt-2 border-t border-white/[0.04]">
+              {rocks.funnel.map((step, i) => {
+                const pct = i === 0 ? 100 : (step.count / rocks.funnel[0].count) * 100;
                 return (
-                  <div key={id} className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: brand.color }} />
-                        <span className="text-xs font-medium text-white">{brand.shortLabel}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-[11px] text-[#64748B]">{pct.toFixed(0)}%</span>
-                        <span className="text-xs font-bold text-white">{formatCurrency(metrics.spend, "EUR")}</span>
-                        <span className="text-[11px] text-[#64748B]">/ {formatCurrency(brand.budget, "EUR")}</span>
-                      </div>
+                  <div key={step.stage}>
+                    <div className="flex items-baseline justify-between text-[10px] mb-0.5">
+                      <span className="text-white/55">{step.stage}</span>
+                      <span className="text-white/85 tabular-nums font-semibold">
+                        {fmtNumber(step.count)}
+                        {i > 0 && (
+                          <span className="text-white/30 ml-1 font-normal">
+                            ({pct.toFixed(0)}%)
+                          </span>
+                        )}
+                      </span>
                     </div>
-                    <div className="h-2 rounded-full bg-white/[0.06] overflow-hidden">
+                    <div className="h-1 rounded-full bg-white/[0.04] overflow-hidden">
                       <div
-                        className="h-full rounded-full transition-all duration-700"
-                        style={{ width: `${pct}%`, backgroundColor: brand.color }}
+                        className="h-full rounded-full transition-all"
+                        style={{ width: `${pct}%`, backgroundColor: ACCENT_GOLD, opacity: 0.6 }}
                       />
                     </div>
                   </div>
                 );
               })}
             </div>
-
-            {/* Season summary */}
-            <div className="grid grid-cols-3 gap-3 pt-2 border-t border-white/[0.06]">
-              <div className="text-center p-2.5 rounded-xl bg-white/[0.03]">
-                <p className="text-[10px] text-[#64748B] uppercase mb-1">Day {seasonPacing.elapsed}</p>
-                <p className="text-xs font-bold text-white">of {seasonPacing.totalDays}</p>
-              </div>
-              <div className="text-center p-2.5 rounded-xl bg-white/[0.03]">
-                <p className="text-[10px] text-[#64748B] uppercase mb-1">Daily Rate</p>
-                <p className="text-xs font-bold text-white">{formatCurrency(seasonPacing.dailyRate, "EUR")}/day</p>
-              </div>
-              <div className="text-center p-2.5 rounded-xl bg-white/[0.03]">
-                <p className="text-[10px] text-[#64748B] uppercase mb-1">Projected</p>
-                <p className="text-xs font-bold text-white">{formatCurrency(seasonPacing.projectedTotal, "EUR")}</p>
-              </div>
-            </div>
-
-            <p className="text-[10px] text-[#64748B] italic">
-              Note: May–August is the heavy spend period. Linear pacing may under-flag under-spend in early months.
-            </p>
-          </div>
-
-          {/* Platform Split */}
-          <div className="bg-[#12121A] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-4 sm:space-y-5">
-            <h2 className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">Platform Split</h2>
-
-            <div className="space-y-3">
-              {(() => {
-                const mSpend = activeTab === "all" ? totalMetaSpend : (activeMetrics?.metaSpend || 0);
-                const gSpend = activeTab === "all" ? totalGoogleSpend : (activeMetrics?.googleSpend || 0);
-                const mRev = activeTab === "all" ? totalMetaRevenue : (activeMetrics?.metaRevenue || 0);
-                const gRev = activeTab === "all" ? totalGoogleRevenue : (activeMetrics?.googleRevenue || 0);
-                const mConv = activeTab === "all" ? totalMetaConversions : (activeMetrics?.metaConversions || 0);
-                const gConv = activeTab === "all" ? totalGoogleConversions : (activeMetrics?.googleConversions || 0);
-                const rows = [
-                  { icon: <MetaIcon size={20} />, name: "Meta Ads", spend: mSpend, rev: mRev, conv: mConv, pct: activeSpend > 0 ? (mSpend / activeSpend * 100).toFixed(0) : "0" },
-                  { icon: <GoogleIcon size={20} />, name: "Google Ads", spend: gSpend, rev: gRev, conv: gConv, pct: activeSpend > 0 ? (gSpend / activeSpend * 100).toFixed(0) : "0" },
-                ];
-                return rows.map((r) => (
-                  <div key={r.name} className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.04]">
-                    <div className="flex items-center gap-2.5 mb-3">
-                      {r.icon}
-                      <span className="text-sm font-semibold text-white">{r.name}</span>
-                      <span className="text-[10px] text-[#64748B] ml-auto">{r.pct}% of spend</span>
-                    </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                      <div>
-                        <p className="text-[9px] text-[#64748B] uppercase tracking-wider mb-0.5">Spend</p>
-                        <p className="text-sm font-bold text-white">{formatCurrency(r.spend, "EUR")}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-[#64748B] uppercase tracking-wider mb-0.5">Conv. Value</p>
-                        <p className="text-sm font-bold text-white">{formatCurrency(r.rev, "EUR")}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-[#64748B] uppercase tracking-wider mb-0.5">ROAS</p>
-                        <p className="text-sm font-bold text-white">{r.spend > 0 ? formatROAS(r.rev / r.spend) : "—"}</p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] text-[#64748B] uppercase tracking-wider mb-0.5">Conv</p>
-                        <p className="text-sm font-bold text-white">{formatNumber(r.conv)}</p>
-                      </div>
-                    </div>
-                  </div>
-                ));
-              })()}
-              <div className="flex items-center justify-between p-3.5 rounded-xl bg-white/[0.02] border border-dashed border-white/[0.06]">
-                <div className="flex items-center gap-3">
-                  <div className="w-[22px] h-[22px] rounded-md bg-white/[0.06] flex items-center justify-center">
-                    <Info size={12} className="text-[#64748B]" />
-                  </div>
-                  <div>
-                    <span className="text-sm font-medium text-[#64748B]">TikTok Ads</span>
-                    <p className="text-[11px] text-[#475569]">Pending connection</p>
-                  </div>
-                </div>
-                <span className="text-xs font-medium text-[#475569]">Coming soon</span>
-              </div>
-            </div>
-
-            {/* Brand spend breakdown (only on All tab) */}
-            {activeTab === "all" && brandPieData.length > 0 && (
-              <div className="pt-3 border-t border-white/[0.06]">
-                <p className="text-[10px] text-[#64748B] uppercase tracking-wider font-medium mb-3">Brand Split</p>
-                <div className="space-y-2">
-                  {IRG_BRAND_ORDER.map((id) => {
-                    const brand = IRG_BRANDS[id];
-                    const metrics = brandMetrics[id];
-                    const pct = totalSpend > 0 ? (metrics.spend / totalSpend) * 100 : 0;
-                    return (
-                      <div key={id} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: brand.color }} />
-                          <span className="text-[11px] text-[#94A3B8]">{brand.shortLabel}</span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-[10px] text-[#64748B]">{pct.toFixed(0)}%</span>
-                          <span className="text-xs font-semibold text-white">{formatCurrency(metrics.spend, "EUR")}</span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </div>
         </div>
-
-        {/* ── Daily Spend Chart ── */}
-        {dailyData.length > 0 && (
-          <div className="bg-[#12121A] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">Daily Spend</h2>
-              <span className="flex items-center gap-1.5 text-[11px] text-[#94A3B8]">
-                <span className="w-2.5 h-2.5 rounded-sm bg-[#FF6A41]" /> Spend
-              </span>
-            </div>
-            <div className="h-[200px] sm:h-[280px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dailyData} barSize={dailyData.length > 20 ? undefined : 14}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fill: "#64748B", fontSize: 10 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fill: "#64748B", fontSize: 10 }} tickLine={false} axisLine={false} width={50} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: "#1A1A2E", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "12px", fontSize: 12, padding: "10px 14px" }}
-                    labelStyle={{ color: "#94A3B8", marginBottom: 4 }}
-                    formatter={(val) => [formatCurrency(Number(val), "EUR")]}
-                    cursor={{ fill: "rgba(255,255,255,0.02)" }}
-                  />
-                  <Bar dataKey="spend" fill="#FF6A41" radius={[3, 3, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        )}
-
-        {/* ── Campaign Table ── */}
-        <div className="bg-[#12121A] border border-white/[0.06] rounded-xl sm:rounded-2xl overflow-hidden">
-          <div className="px-4 sm:px-6 py-3 sm:py-4 border-b border-white/[0.06] flex items-center justify-between">
-            <h2 className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">
-              Campaigns {activeTab !== "all" && `— ${activeBrand?.label}`}
-            </h2>
-            <span className="text-[11px] text-[#64748B]">{campaigns.length} campaign{campaigns.length !== 1 ? "s" : ""}</span>
-          </div>
-          <div className="hidden lg:block overflow-x-auto">
-            <table className="w-full text-left min-w-[800px]">
-              <thead>
-                <tr className="border-b border-white/[0.04]">
-                  {["Campaign", "Brand", "Platform", "Status", "Spend", "Impr", "Clicks", "CTR", "CPC", "Conv", "CPA"].map((h) => (
-                    <th key={h} className="px-4 py-3 text-[10px] text-[#64748B] uppercase tracking-wider font-semibold whitespace-nowrap">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {campaigns.map((c, i) => (
-                  <tr key={`${c.name}-${i}`} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                    <td className="px-4 py-3 max-w-[220px]">
-                      <p className="text-xs font-medium text-white truncate">{c.name}</p>
-                      {c.isPreexisting && (
-                        <span className="text-[9px] text-amber-400/70">IRG-managed</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: IRG_BRANDS[c.brand]?.color || "#94A3B8" }} />
-                        <span className="text-[11px] text-[#94A3B8]">{IRG_BRANDS[c.brand]?.shortLabel || "?"}</span>
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn(
-                        "px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase",
-                        c.platform === "Meta" ? "bg-blue-500/20 text-blue-400" : "bg-emerald-500/20 text-emerald-400",
-                      )}>
-                        {c.platform}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={cn(
-                        "flex items-center gap-1 text-[11px] font-medium",
-                        c.status === "Live" && "text-[#22C55E]",
-                        c.status === "Paused" && "text-amber-400",
-                        c.status === "Draft" && "text-[#64748B]",
-                      )}>
-                        {c.status === "Live" && <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse" />}
-                        {c.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs font-semibold text-white">{formatCurrency(c.spend, "EUR")}</td>
-                    <td className="px-4 py-3 text-xs text-[#94A3B8]">{formatNumber(c.impressions)}</td>
-                    <td className="px-4 py-3 text-xs text-[#94A3B8]">{formatNumber(c.clicks)}</td>
-                    <td className="px-4 py-3 text-xs text-[#94A3B8]">{c.ctr.toFixed(2)}%</td>
-                    <td className="px-4 py-3 text-xs text-[#94A3B8]">{c.clicks > 0 ? formatCurrency(c.cpc, "EUR") : "—"}</td>
-                    <td className="px-4 py-3 text-xs text-[#94A3B8]">{c.conversions > 0 ? formatNumber(c.conversions) : "—"}</td>
-                    <td className="px-4 py-3 text-xs text-[#94A3B8]">{c.conversions > 0 ? formatCurrency(c.cpa, "EUR") : "—"}</td>
-                  </tr>
-                ))}
-                {campaigns.length === 0 && (
-                  <tr>
-                    <td colSpan={11} className="px-4 py-12 text-center text-sm text-[#64748B]">
-                      No campaign data available for this period.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile cards */}
-          <div className="lg:hidden p-3 space-y-2">
-            {campaigns.length === 0 ? (
-              <div className="p-6 text-center text-sm text-[#64748B]">
-                No campaign data available for this period.
-              </div>
-            ) : (
-              campaigns.map((c, i) => (
-                <div
-                  key={`${c.name}-${i}`}
-                  className="rounded-xl border border-white/[0.06] bg-white/[0.03] p-3 space-y-2"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-white truncate">{c.name}</p>
-                      {c.isPreexisting && (
-                        <span className="text-[9px] text-amber-400/70">IRG-managed</span>
-                      )}
-                    </div>
-                    <span className={cn(
-                      "px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase flex-shrink-0",
-                      c.platform === "Meta" ? "bg-blue-500/20 text-blue-400" : "bg-emerald-500/20 text-emerald-400",
-                    )}>
-                      {c.platform}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-[10px]">
-                    <span className="flex items-center gap-1 text-[#94A3B8]">
-                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: IRG_BRANDS[c.brand]?.color || "#94A3B8" }} />
-                      {IRG_BRANDS[c.brand]?.shortLabel || "?"}
-                    </span>
-                    <span className={cn(
-                      "flex items-center gap-1 font-medium",
-                      c.status === "Live" && "text-[#22C55E]",
-                      c.status === "Paused" && "text-amber-400",
-                      c.status === "Draft" && "text-[#64748B]",
-                    )}>
-                      {c.status === "Live" && <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] animate-pulse" />}
-                      {c.status}
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/[0.04]">
-                    <MetricCell label="Spend" value={formatCurrency(c.spend, "EUR")} emphasis />
-                    <MetricCell label="Impr" value={formatNumber(c.impressions)} />
-                    <MetricCell label="Clicks" value={formatNumber(c.clicks)} />
-                    <MetricCell label="CTR" value={`${c.ctr.toFixed(2)}%`} />
-                    <MetricCell label="CPC" value={c.clicks > 0 ? formatCurrency(c.cpc, "EUR") : "—"} />
-                    <MetricCell label="Conv" value={c.conversions > 0 ? formatNumber(c.conversions) : "—"} emphasis />
-                    <MetricCell label="CPA" value={c.conversions > 0 ? formatCurrency(c.cpa, "EUR") : "—"} />
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* ── Connection Status ── */}
-        <div className="bg-[#12121A] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-4">
-          <h2 className="text-xs font-semibold text-[#94A3B8] uppercase tracking-wider">Windsor AI Connections</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-            {[
-              { label: "Meta — IRG | 528 Ibiza", id: "699834239363956", status: "connected" as const },
-              { label: "Meta — IRG | Ibiza Rocks", id: "511748048632829", status: "connected_empty" as const },
-              { label: "Google — Rocks - Ibiza", id: "278-470-9624", status: "connected" as const },
-              { label: "Google — 528 Ibiza", id: "534-641-8417", status: "connected" as const },
-              { label: "TikTok Ads", id: "—", status: "not_connected" as const },
-              { label: "GA4", id: "—", status: "not_connected" as const },
-            ].map((conn) => (
-              <div key={conn.label} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/[0.04]">
-                <div>
-                  <p className="text-xs font-medium text-white">{conn.label}</p>
-                  <p className="text-[10px] text-[#64748B] font-mono">{conn.id}</p>
-                </div>
-                <span className={cn(
-                  "px-2 py-0.5 rounded-full text-[9px] font-semibold",
-                  conn.status === "connected" && "bg-[#22C55E]/10 text-[#22C55E]",
-                  conn.status === "connected_empty" && "bg-amber-500/10 text-amber-400",
-                  conn.status === "not_connected" && "bg-white/[0.05] text-[#64748B]",
-                )}>
-                  {conn.status === "connected" ? "Connected" : conn.status === "connected_empty" ? "No Data" : "Not Connected"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <SuggestionWidget />
-        </DataBlur>
       </div>
-
-      <KpiDetailModal data={kpiDetail} onClose={closeKpiDetail} />
     </>
+  );
+}
+
+/* ── Sub-components ── */
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-[10px] uppercase tracking-[0.06em] font-semibold text-white/25">
+      {children}
+    </p>
+  );
+}
+
+function NotProvidedPill() {
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium"
+      style={{
+        backgroundColor: "rgba(200,169,110,0.1)",
+        border: "1px solid rgba(200,169,110,0.2)",
+        color: ACCENT_GOLD,
+      }}
+    >
+      Not provided
+    </span>
+  );
+}
+
+function PreFixDateNote({ fixedOn }: { fixedOn: string }) {
+  const fmt = new Date(fixedOn).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  return (
+    <div
+      className="rounded-[10px] border px-3 py-2 flex items-start gap-2"
+      style={{
+        backgroundColor: "rgba(200,169,110,0.05)",
+        borderColor: "rgba(200,169,110,0.18)",
+      }}
+    >
+      <AlertTriangle size={12} className="flex-shrink-0 mt-0.5" style={{ color: ACCENT_GOLD }} />
+      <p className="text-[11px] text-white/55 leading-relaxed">
+        Purchase value tracking fixed by Tristan ({fmt}). Pre-{fmt} data may show
+        deposit values not full purchase prices for VIP bookings via Four Venues.
+      </p>
+    </div>
+  );
+}
+
+interface KpiProps {
+  label: string;
+  value: string;
+  sub?: string;
+  deltaPct?: number;          // percentage delta (vs last week)
+  deltaAbsolute?: number;     // absolute delta (e.g. ROAS x change, ticket count)
+  deltaSuffix?: string;       // e.g. "x" for ROAS, "" for tickets
+  deltaUnit?: string;         // "vs last week" / "this week"
+  muted?: boolean;
+}
+
+function Kpi({ label, value, sub, deltaPct, deltaAbsolute, deltaSuffix = "", deltaUnit = "vs last week", muted }: KpiProps) {
+  const hasDelta = deltaPct !== undefined || deltaAbsolute !== undefined;
+  const numeric = deltaPct !== undefined ? deltaPct : deltaAbsolute;
+  const positive = numeric !== undefined && numeric >= 0;
+  return (
+    <div className={cn("rounded-[10px] border p-4", CARD_BG, CARD_BORDER, muted && "opacity-70")}>
+      <p className="text-[10px] uppercase tracking-[0.06em] font-semibold text-white/25 mb-2">{label}</p>
+      <p
+        className="font-semibold tabular-nums"
+        style={{ fontSize: "22px", color: muted ? "rgba(255,255,255,0.45)" : "#f0ede8" }}
+      >
+        {value}
+      </p>
+      {hasDelta && (
+        <div className="mt-1 flex items-center gap-1 text-[11px]">
+          <span style={{ color: positive ? ACCENT_GREEN : NEGATIVE }} className="inline-flex items-center gap-0.5">
+            {positive ? <ArrowUpRight size={11} /> : <ArrowDownRight size={11} />}
+            {deltaPct !== undefined
+              ? `${Math.abs(deltaPct).toFixed(deltaPct % 1 === 0 ? 0 : 1)}%`
+              : `${Math.abs(deltaAbsolute!).toFixed(deltaAbsolute! % 1 === 0 ? 0 : 1)}${deltaSuffix}`}
+          </span>
+          <span className="text-white/30">{deltaUnit}</span>
+        </div>
+      )}
+      {sub && <p className="text-[10px] text-white/35 mt-1.5">{sub}</p>}
+    </div>
+  );
+}
+
+function PlatformCard({
+  label,
+  value,
+  sub,
+  icon,
+  preLaunch,
+}: {
+  label: string;
+  value: string;
+  sub: string;
+  icon?: React.ReactNode;
+  preLaunch?: boolean;
+}) {
+  return (
+    <div className={cn("rounded-[10px] border p-3 sm:p-4", CARD_BG, CARD_BORDER, preLaunch && "opacity-65")}>
+      <div className="flex items-center gap-1.5 mb-2">
+        {icon}
+        <span className="text-[10px] uppercase tracking-[0.06em] font-semibold text-white/45">{label}</span>
+      </div>
+      <p className="font-semibold tabular-nums" style={{ fontSize: "20px", color: "#f0ede8" }}>{value}</p>
+      <p className={cn("text-[10px] mt-1", preLaunch ? "text-white/40" : "text-white/35")}>{sub}</p>
+    </div>
+  );
+}
+
+function FrequencyAlertRow({ alert }: { alert: ReturnType<typeof getFrequencyAlerts>[number] }) {
+  const isRed = alert.severity === "red";
+  const accent = isRed ? "#c0392b" : "#d97706";
+  return (
+    <div
+      className="rounded-[10px] border px-3 py-2 flex items-center gap-3 flex-wrap"
+      style={{
+        backgroundColor: `${accent}15`,
+        borderColor: `${accent}40`,
+      }}
+    >
+      {isRed ? (
+        <AlertTriangle size={13} style={{ color: accent }} />
+      ) : (
+        <Zap size={13} style={{ color: accent }} />
+      )}
+      <span className="text-[11px] font-semibold" style={{ color: accent }}>
+        {alert.brand}
+      </span>
+      <span className="text-[11px] text-white/55">— &ldquo;{alert.campaign}&rdquo;</span>
+      <span className="text-[11px] text-white/35">
+        {alert.platform} {alert.window} frequency {alert.frequency.toFixed(1)}x
+      </span>
+      <span className="ml-auto text-[10px] uppercase tracking-[0.06em] font-semibold" style={{ color: accent }}>
+        {alert.recommendation}
+      </span>
+    </div>
+  );
+}
+
+function BrandCard({ row }: { row: ReturnType<typeof getBrandGrid>[number] }) {
+  const brand = IRG_BRANDS[row.brand];
+  if (!brand) return null;
+
+  return (
+    <div className={cn("rounded-[10px] border overflow-hidden", CARD_BG, CARD_BORDER)}>
+      {/* 3px accent bar */}
+      <div className="h-[3px] w-full" style={{ backgroundColor: brand.color }} />
+      <div className="p-4 space-y-3">
+        <div>
+          <h3 className="text-sm font-semibold" style={{ color: "#f0ede8" }}>
+            {brand.label}
+          </h3>
+          <p className="text-[10px] text-white/35 mt-0.5">
+            Account: <span className="text-white/55">{brand.accountLabel}</span>
+            {" · "}
+            <span className="text-white/55">€{(brand.budget / 1000).toFixed(0)}k annual</span>
+          </p>
+          {brand.accountNote && (
+            <p className="text-[10px] text-white/35 italic mt-1">{brand.accountNote}</p>
+          )}
+        </div>
+
+        <div className="grid grid-cols-4 gap-3">
+          <BrandStat label="Spend" value={fmtEur(row.spend)} delta={row.spendDeltaPct} deltaSuffix="%" />
+          <BrandStat label="Revenue" value={fmtEur(row.eventsRevenue)} delta={row.eventsRevenueDeltaPct} deltaSuffix="%" />
+          <BrandStat
+            label="ROAS"
+            value={row.roas !== null ? `${row.roas.toFixed(1)}x` : "—"}
+            delta={row.roasDelta}
+            deltaSuffix="x"
+            highlight={row.roas !== null && row.roas >= 10}
+          />
+          <BrandStat
+            label="Tickets"
+            value={fmtNumber(row.tickets)}
+            delta={row.ticketsDelta}
+            deltaSuffix=""
+          />
+        </div>
+
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.04]">
+          <span className="text-[11px] text-white/55">
+            CPA (actual):{" "}
+            <span className="text-white/85 font-medium">
+              {row.cpaLabel ?? (row.cpa !== null ? fmtEurPrecise(row.cpa) : "—")}
+            </span>
+          </span>
+          <NotProvidedPill />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BrandStat({
+  label,
+  value,
+  delta,
+  deltaSuffix = "",
+  highlight,
+}: {
+  label: string;
+  value: string;
+  delta?: number | null;
+  deltaSuffix?: string;
+  highlight?: boolean;
+}) {
+  const positive = delta !== null && delta !== undefined && delta >= 0;
+  return (
+    <div>
+      <p className="text-[9px] uppercase tracking-[0.06em] text-white/30">{label}</p>
+      <p
+        className="text-sm font-semibold tabular-nums mt-0.5"
+        style={{ color: highlight ? ACCENT_GREEN : "#f0ede8" }}
+      >
+        {value}
+      </p>
+      {delta !== null && delta !== undefined && (
+        <p className="text-[10px] tabular-nums mt-0.5" style={{ color: positive ? ACCENT_GREEN : NEGATIVE }}>
+          {positive ? "▲" : "▼"} {Math.abs(delta).toFixed(delta % 1 === 0 ? 0 : 1)}{deltaSuffix}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function HotelReadOnlyRow({ row }: { row: ReturnType<typeof getBrandGrid>[number] }) {
+  return (
+    <div
+      className={cn("rounded-[10px] border px-4 py-3 flex items-center justify-between flex-wrap gap-3", CARD_BG)}
+      style={{ borderColor: "rgba(255,255,255,0.04)" }}
+    >
+      <div className="flex items-center gap-3 flex-wrap">
+        <Users size={13} className="text-white/25" />
+        <span className="text-[11px] uppercase tracking-[0.06em] font-semibold text-white/25">
+          Ibiza Rocks Hotel — read only
+        </span>
+        <span className="text-[11px] text-white/30 italic">
+          Up Hotel / Google. Not OnSocial campaigns.
+        </span>
+      </div>
+      <div className="flex items-center gap-4 text-[11px] text-white/25">
+        <span>
+          Hotel revenue: <span className="text-white/40 font-medium">{fmtEur(row.hotelRevenue)}</span>
+        </span>
+        <span>
+          Bookings: <span className="text-white/40 font-medium">{fmtNumber(row.tickets)}</span>
+        </span>
+        {row.ticketsDelta !== null && (
+          <span style={{ color: row.ticketsDelta >= 0 ? ACCENT_GREEN : NEGATIVE }}>
+            {row.ticketsDelta >= 0 ? "▲" : "▼"} {Math.abs(row.ticketsDelta)} this week
+          </span>
+        )}
+      </div>
+    </div>
   );
 }

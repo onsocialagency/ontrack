@@ -81,11 +81,17 @@ function getMinistryNav(slug: string): NavItem[] {
 
 function getIrgNav(slug: string): NavItem[] {
   const base = `/${slug}`;
+  // Order per the 29 April 2026 IRG brief.
+  // Note: Campaigns now points at the dedicated /campaigns route (was
+  // a redirect to /attribution previously). Events + Reconciliation
+  // are new IRG-specific tabs.
   return [
     { label: "Overview", href: base, icon: <LayoutDashboard size={20} /> },
     { label: "Suggestions", href: `${base}/suggestions`, icon: <Lightbulb size={20} /> },
-    { label: "Campaigns", href: `${base}/attribution`, icon: <Megaphone size={20} /> },
+    { label: "Campaigns", href: `${base}/campaigns`, icon: <Megaphone size={20} /> },
+    { label: "Events", href: `${base}/events`, icon: <Target size={20} /> },
     { label: "Creative Lab", href: `${base}/creative-lab`, icon: <Palette size={20} /> },
+    { label: "Reconciliation", href: `${base}/reconciliation`, icon: <GitCompare size={20} /> },
     { label: "Reports", href: `${base}/reports`, icon: <FileText size={20} /> },
     { label: "Settings", href: `${base}/settings`, icon: <Settings size={20} /> },
   ];
