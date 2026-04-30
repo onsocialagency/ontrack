@@ -37,7 +37,6 @@ import {
   getIrgHeadlineKpis,
   getSalesByPlatform,
   getBrandGrid,
-  getFrequencyAlerts,
   getRocksClubStats,
   getDailyPerfSeries,
 } from "@/lib/irg-mock";
@@ -49,7 +48,7 @@ import {
 } from "@/lib/irg-live";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
-  AlertTriangle, Zap, Mail, Users, Euro, Ticket, TrendingUp, Music2,
+  AlertTriangle, Mail, Users, Euro, Ticket, TrendingUp, Music2,
 } from "lucide-react";
 import {
   ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
@@ -105,10 +104,9 @@ export default function IrgOverview() {
     [isLive, liveData],
   );
 
-  // Frequency alerts + Rocks Club stay mock for now — neither comes
-  // from the campaigns endpoint. Frequency needs the creatives feed;
-  // Rocks Club needs HubSpot/GA4 sign-up events.
-  const alerts = useMemo(() => getFrequencyAlerts(), []);
+  // Rocks Club still mock — needs HubSpot / GA4 sign-up events that
+  // aren't wired yet. Frequency alerts removed from the overview at
+  // Zack's request (will live elsewhere when the creatives feed lands).
   const rocks = useMemo(() => getRocksClubStats(), []);
 
   const [chartMetric, setChartMetric] = useState<"spend" | "sales" | "cpa">("spend");
@@ -178,17 +176,7 @@ export default function IrgOverview() {
           />
         </div>
 
-        {/* 3. Frequency alerts */}
-        {alerts.length > 0 && (
-          <div className="space-y-2">
-            <SectionLabel>Frequency alerts</SectionLabel>
-            <div className="space-y-2">
-              {alerts.map((a) => <FrequencyAlertRow key={a.id} alert={a} />)}
-            </div>
-          </div>
-        )}
-
-        {/* 4. Sales by platform */}
+        {/* Sales by platform */}
         <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl overflow-hidden">
           <div className="p-4 border-b border-white/[0.06]">
             <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
@@ -242,19 +230,28 @@ export default function IrgOverview() {
           </div>
         </div>
 
-        {/* 5. Brand performance grid */}
+        {/* Brand performance — OnSocial-managed brands grouped together,
+            Hotel split into its own clearly-labelled section beneath
+            (Up Hotel runs that, it's Google-only, never combined with
+            OnSocial totals). */}
         <div className="space-y-2">
-          <SectionLabel>Brand performance</SectionLabel>
+          <SectionLabel>Brand performance — OnSocial managed</SectionLabel>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
             {brandRows.filter((r) => r.brand !== "IR_HOTEL").map((r) => (
               <BrandCard key={r.brand} row={r} />
             ))}
           </div>
-          {/* Hotel — read-only row beneath the grid */}
-          {brandRows.find((r) => r.brand === "IR_HOTEL") && (
-            <HotelReadOnlyRow row={brandRows.find((r) => r.brand === "IR_HOTEL")!} />
-          )}
         </div>
+
+        {brandRows.find((r) => r.brand === "IR_HOTEL") && (
+          <div className="space-y-2">
+            <h2 className="text-[10px] font-semibold uppercase tracking-wider flex items-center gap-2 text-[#94A3B8]">
+              <Users size={11} />
+              Ibiza Rocks Hotel — Up Hotel / Google · read-only
+            </h2>
+            <HotelCard row={brandRows.find((r) => r.brand === "IR_HOTEL")!} />
+          </div>
+        )}
 
         {/* 6. Bottom row: chart + Rocks Club */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
@@ -443,33 +440,6 @@ function PlatformCard({
   );
 }
 
-function FrequencyAlertRow({ alert }: { alert: ReturnType<typeof getFrequencyAlerts>[number] }) {
-  const isRed = alert.severity === "red";
-  const accent = isRed ? "#EF4444" : "#F59E0B";
-  return (
-    <div
-      className="bg-white/[0.04] border rounded-xl px-3 py-2 flex items-center gap-3 flex-wrap"
-      style={{ borderColor: `${accent}40` }}
-    >
-      {isRed ? (
-        <AlertTriangle size={13} style={{ color: accent }} />
-      ) : (
-        <Zap size={13} style={{ color: accent }} />
-      )}
-      <span className="text-[11px] font-semibold" style={{ color: accent }}>
-        {alert.brand}
-      </span>
-      <span className="text-[11px] text-[#94A3B8]">— &ldquo;{alert.campaign}&rdquo;</span>
-      <span className="text-[11px] text-[#64748B]">
-        {alert.platform} {alert.window} frequency {alert.frequency.toFixed(1)}x
-      </span>
-      <span className="ml-auto text-[10px] uppercase tracking-wider font-semibold" style={{ color: accent }}>
-        {alert.recommendation}
-      </span>
-    </div>
-  );
-}
-
 function BrandCard({ row }: { row: ReturnType<typeof getBrandGrid>[number] }) {
   const brand = IRG_BRANDS[row.brand];
   if (!brand) return null;
@@ -545,28 +515,58 @@ function BrandStat({
   );
 }
 
-function HotelReadOnlyRow({ row }: { row: ReturnType<typeof getBrandGrid>[number] }) {
+/**
+ * Hotel card — same layout as a BrandCard so the eye reads the data
+ * the same way, but on a muted base (lower-opacity bg + dashed border)
+ * and a single Google-only badge to make it unambiguously "different
+ * provenance". Spend / ROAS deliberately omitted because OnSocial
+ * doesn't run paid here.
+ */
+function HotelCard({ row }: { row: ReturnType<typeof getBrandGrid>[number] }) {
+  const brand = IRG_BRANDS.IR_HOTEL;
   return (
     <div
-      className="bg-white/[0.02] border border-white/[0.04] rounded-xl px-4 py-3 flex items-center justify-between flex-wrap gap-3"
+      className="bg-white/[0.02] border border-dashed border-white/[0.10] rounded-xl sm:rounded-2xl overflow-hidden"
     >
-      <div className="flex items-center gap-3 flex-wrap">
-        <Users size={13} className="text-[#64748B]" />
-        <span className="text-[10px] uppercase tracking-wider font-semibold text-[#64748B]">
-          Ibiza Rocks Hotel — read only
-        </span>
-        <span className="text-[11px] text-[#64748B] italic">
-          Up Hotel / Google. Not OnSocial campaigns.
-        </span>
-      </div>
-      <div className="flex items-center gap-4 text-[11px] text-[#64748B]">
-        <span>Hotel revenue: <span className="text-[#94A3B8] font-medium">{formatCurrency(row.hotelRevenue, "EUR")}</span></span>
-        <span>Bookings: <span className="text-[#94A3B8] font-medium">{formatNumber(row.tickets)}</span></span>
-        {row.ticketsDelta !== null && (
-          <span className={row.ticketsDelta >= 0 ? "text-emerald-400" : "text-red-400"}>
-            {row.ticketsDelta >= 0 ? "▲" : "▼"} {Math.abs(row.ticketsDelta)} this week
+      <div className="h-[3px] w-full" style={{ backgroundColor: brand.color, opacity: 0.5 }} />
+      <div className="p-4 sm:p-5 space-y-3">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <div>
+            <h3 className="text-sm font-semibold text-[#94A3B8]">{brand.label}</h3>
+            <p className="text-[10px] text-[#64748B] mt-0.5">
+              Account: <span className="text-[#94A3B8]">{brand.accountLabel}</span>
+              {" · "}
+              <span className="text-[#94A3B8]">€{(brand.budget / 1000).toFixed(0)}k annual budget</span>
+            </p>
+            <p className="text-[10px] text-[#64748B] italic mt-1">
+              Google-only. Up Hotel manages these campaigns. Read-only context.
+            </p>
+          </div>
+          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400/80">
+            <GoogleIcon size={10} /> Google only
           </span>
-        )}
+        </div>
+
+        <div className="grid grid-cols-3 gap-3">
+          <BrandStat
+            label="Hotel revenue"
+            value={formatCurrency(row.hotelRevenue, "EUR")}
+            delta={row.eventsRevenueDeltaPct}
+            deltaSuffix="%"
+          />
+          <BrandStat
+            label="Bookings"
+            value={formatNumber(row.tickets)}
+            delta={row.ticketsDelta}
+            deltaSuffix=""
+          />
+          <BrandStat label="Spend" value="—" />
+        </div>
+
+        <p className="text-[10px] text-[#64748B] pt-2 border-t border-white/[0.04]">
+          Hotel ROAS / CPA not tracked in OnSocial — Up Hotel reports on these
+          internally. Numbers above are revenue and bookings only.
+        </p>
       </div>
     </div>
   );
