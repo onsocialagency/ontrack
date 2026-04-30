@@ -37,14 +37,18 @@ export const IRG_SEASON_END = "2026-10-31";
 /**
  * IR_HOTEL is kept in the brand catalogue so that revenue can be
  * surfaced as read-only context, but it is NOT shown as a pill in
- * the brand selector. POOL_CLUB is OnSocial-managed and IS a pill.
+ * the brand selector.
+ *
+ * Pool Club is intentionally NOT a separate brand. Per Zack: Pool Club
+ * lives at Ibiza Rocks and is part of the Ibiza Rocks Events programme.
+ * It's surfaced as a campaign-name tag and an event row, both rolled
+ * up under IR_EVENTS.
  */
 export type IrgBrandId =
   | "IR_HOTEL"
   | "IR_EVENTS"
   | "528_VENUE"
-  | "PIKES_PRESENTS"
-  | "POOL_CLUB";
+  | "PIKES_PRESENTS";
 
 export interface IrgBrand {
   id: IrgBrandId;
@@ -125,22 +129,6 @@ export const IRG_BRANDS: Record<IrgBrandId, IrgBrand> = {
       { connector: "facebook", account: "699834239363956", campaignContains: ["OS_PikesPresent", "Manumission"] },
     ],
   },
-  // OnSocial-managed. Tracked as a Four Venues purchase event (no
-  // dedicated sign-up form — drives directly to FV checkout).
-  POOL_CLUB: {
-    id: "POOL_CLUB",
-    label: "Pool Club",
-    shortLabel: "Pool Club",
-    budget: 28_000,
-    color: "#1D9E75",
-    managedBy: "OnSocial",
-    accountLabel: "[IRG]",
-    accountNote: "Day-pass driver — directs traffic to Four Venues checkout.",
-    sources: [
-      // Pool Club lives under the IR Meta account when launched
-      { connector: "facebook", account: "511748048632829", campaignContains: ["pool", "POOL"] },
-    ],
-  },
 };
 
 export const IRG_TOTAL_BUDGET = Object.values(IRG_BRANDS).reduce((s, b) => s + b.budget, 0);
@@ -153,7 +141,6 @@ export const IRG_BRAND_PILL_ORDER: IrgBrandId[] = [
   "IR_EVENTS",
   "528_VENUE",
   "PIKES_PRESENTS",
-  "POOL_CLUB",
 ];
 
 /**
@@ -164,7 +151,6 @@ export const IRG_BRAND_GRID_ORDER: IrgBrandId[] = [
   "IR_EVENTS",
   "528_VENUE",
   "PIKES_PRESENTS",
-  "POOL_CLUB",
   "IR_HOTEL", // read-only, appears below the grid
 ];
 
@@ -225,19 +211,18 @@ export function assignIrgBrand(campaignName: string, accountId: string): IrgBran
   // 528 Google account — all campaigns are 528
   if (accountId === "534-641-8417") return "528_VENUE";
 
-  // Rocks Google account — split by campaign name
+  // Rocks Google account — split by campaign name. Pool Club rolls up
+  // under IR_EVENTS (per Zack — Pool Club is at Ibiza Rocks, an event).
   if (accountId === "278-470-9624") {
     if (name.includes("hotel") || name.includes("ho_")) return "IR_HOTEL";
-    if (name.includes("pool")) return "POOL_CLUB";
-    if (name.includes("group") || name.includes("dg_")) return "IR_EVENTS";
+    if (name.includes("pool") || name.includes("group") || name.includes("dg_")) return "IR_EVENTS";
     return "IR_HOTEL";
   }
 
   // Ibiza Rocks Meta account
   if (accountId === "511748048632829") {
-    if (name.includes("pool")) return "POOL_CLUB";
     if (name.includes("os_irh") || name.includes("hotel") || name.includes("staylist")) return "IR_HOTEL";
-    if (name.includes("os_ire") || name.includes("event")) return "IR_EVENTS";
+    // Pool / events / OS_IRE all roll up under IR_EVENTS
     return "IR_EVENTS";
   }
 

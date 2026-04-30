@@ -19,12 +19,17 @@
  */
 
 import { useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { useVenue } from "@/lib/venue-context";
+import { useDateRange } from "@/lib/date-range-context";
+import { useWindsor } from "@/lib/use-windsor";
+import type { WindsorRow } from "@/lib/windsor";
 import { cn } from "@/lib/utils";
 import { IRG_BRANDS } from "@/lib/irg-brands";
 import { getIrgCampaigns, type IrgCampaignRow } from "@/lib/irg-mock";
+import { aggregateCampaigns } from "@/lib/irg-live";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 
 const CARD_BG = "bg-white/[0.04]";const CARD_BORDER = "border-white/[0.06]";const ACCENT_GOLD = "#C8A96E";
@@ -48,8 +53,26 @@ function fmtNumber(value: number): string {
 }
 
 export default function IrgCampaignsView() {
+  const { client: clientSlug } = useParams<{ client: string }>();
   const { activeVenue } = useVenue();
-  const all = useMemo(() => getIrgCampaigns(), []);
+  const { days, preset, dateFrom, dateTo } = useDateRange();
+  const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};
+
+  // Live Windsor pull. Falls back to mock when no API key / no rows.
+  const { data: liveData } = useWindsor<WindsorRow[]>({
+    clientSlug,
+    type: "campaigns",
+    days,
+    ...customDateProps,
+  });
+
+  const all = useMemo<IrgCampaignRow[]>(() => {
+    if (liveData && liveData.length > 0) {
+      const live = aggregateCampaigns(liveData);
+      if (live.length > 0) return live;
+    }
+    return getIrgCampaigns();
+  }, [liveData]);
 
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");

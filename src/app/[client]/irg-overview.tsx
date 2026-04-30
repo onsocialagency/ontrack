@@ -20,10 +20,14 @@
  */
 
 import { useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 import { Header } from "@/components/layout/header";
 import { VenueTabs } from "@/components/layout/venue-tabs";
 import { KpiCard } from "@/components/ui/kpi-card";
 import { useVenue } from "@/lib/venue-context";
+import { useDateRange } from "@/lib/date-range-context";
+import { useWindsor } from "@/lib/use-windsor";
+import type { WindsorRow } from "@/lib/windsor";
 import { cn, formatCurrency, formatNumber } from "@/lib/utils";
 import {
   IRG_BRANDS,
@@ -37,6 +41,12 @@ import {
   getRocksClubStats,
   getDailyPerfSeries,
 } from "@/lib/irg-mock";
+import {
+  aggregateHeadlineKpis,
+  aggregateSalesByPlatform,
+  aggregateBrandGrid,
+  aggregateDailySeries,
+} from "@/lib/irg-live";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
 import {
   AlertTriangle, Zap, Mail, Users, Euro, Ticket, TrendingUp, Music2,
@@ -49,13 +59,57 @@ const ACCENT_GREEN = "#1D9E75";
 const ACCENT_GOLD = "#C8A96E";
 
 export default function IrgOverview() {
+  const { client: clientSlug } = useParams<{ client: string }>();
   const { activeVenue } = useVenue();
-  const kpis = useMemo(() => getIrgHeadlineKpis(activeVenue), [activeVenue]);
-  const platformRows = useMemo(() => getSalesByPlatform(), []);
-  const brandRows = useMemo(() => getBrandGrid(), []);
+  const { days, preset, dateFrom, dateTo, prevDateFrom, prevDateTo } = useDateRange();
+  const customDateProps = preset === "Custom" ? { dateFrom, dateTo } : {};
+
+  // Live Windsor pull. Returns null when the API key isn't configured
+  // (`source === "mock"`); we fall back to the mock helpers below so
+  // every component still renders.
+  const { data: liveData } = useWindsor<WindsorRow[]>({
+    clientSlug,
+    type: "campaigns",
+    days,
+    ...customDateProps,
+  });
+  const { data: prevLiveData } = useWindsor<WindsorRow[]>({
+    clientSlug,
+    type: "campaigns",
+    days,
+    dateFrom: prevDateFrom,
+    dateTo: prevDateTo,
+  });
+  const isLive = !!liveData && liveData.length > 0;
+
+  const kpis = useMemo(
+    () => (isLive
+      ? aggregateHeadlineKpis(liveData!, prevLiveData ?? null, activeVenue) ?? getIrgHeadlineKpis(activeVenue)
+      : getIrgHeadlineKpis(activeVenue)),
+    [isLive, liveData, prevLiveData, activeVenue],
+  );
+  const platformRows = useMemo(
+    () => (isLive ? aggregateSalesByPlatform(liveData!) : getSalesByPlatform()),
+    [isLive, liveData],
+  );
+  const brandRows = useMemo(
+    () => (isLive ? aggregateBrandGrid(liveData!, prevLiveData ?? null) : getBrandGrid()),
+    [isLive, liveData, prevLiveData],
+  );
+  const dailySeries = useMemo(
+    () => {
+      if (!isLive) return getDailyPerfSeries(14);
+      const live = aggregateDailySeries(liveData!);
+      return live.length > 0 ? live : getDailyPerfSeries(14);
+    },
+    [isLive, liveData],
+  );
+
+  // Frequency alerts + Rocks Club stay mock for now — neither comes
+  // from the campaigns endpoint. Frequency needs the creatives feed;
+  // Rocks Club needs HubSpot/GA4 sign-up events.
   const alerts = useMemo(() => getFrequencyAlerts(), []);
   const rocks = useMemo(() => getRocksClubStats(), []);
-  const dailySeries = useMemo(() => getDailyPerfSeries(14), []);
 
   const [chartMetric, setChartMetric] = useState<"spend" | "sales" | "cpa">("spend");
 
