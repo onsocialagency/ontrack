@@ -8,8 +8,9 @@ import { getClientKPIs, getClientCampaigns } from "@/lib/mock-data";
 import { useClient } from "@/lib/client-context";
 import { useWindsor } from "@/lib/use-windsor";
 import { useDateRange } from "@/lib/date-range-context";
-import type { WindsorRow } from "@/lib/windsor";
+import type { WindsorRow, HubSpotContact } from "@/lib/windsor";
 import { sumConversions, rowConversions } from "@/lib/windsor";
+import { MinistryReportBuilder } from "@/components/reports/MinistryReportBuilder";
 import { cn } from "@/lib/utils";
 import { useLocale } from "@/lib/locale-context";
 import { VenueTabs } from "@/components/layout/venue-tabs";
@@ -118,7 +119,24 @@ export default function ReportsPage() {
     ...customDateProps,
   });
 
+  // Lead-gen / hybrid clients get the Ministry report builder below;
+  // for those we also need HubSpot contacts so the per-product table can
+  // pull HubSpot-confirmed leads. This fetch is a no-op for clients
+  // without a HubSpot connection.
+  const { data: hubspotData } = useWindsor<HubSpotContact[]>({
+    clientSlug,
+    type: "hubspot",
+    days,
+    ...customDateProps,
+  });
+
   const isLive = dataSource === "windsor" && windsorData && windsorData.length > 0;
+
+  // Lead-gen clients render an entirely different report builder. Keep
+  // the existing generic flow for ecom + IRG by branching here. Doing
+  // the branch inside the component (rather than a separate route) lets
+  // both flavours share /reports as the URL the team already knows.
+  const isLeadGen = clientOrNull?.type === "lead_gen" || clientOrNull?.type === "hybrid";
 
   const kpis = useMemo(() => {
     if (isLive) return aggregateKPIs(windsorData);
@@ -149,7 +167,6 @@ export default function ReportsPage() {
       }));
   }, [isLive, windsorData, mockCampaigns]);
 
-  const isLeadGen = clientOrNull?.type === "lead_gen";
   const METRIC_OPTIONS = isLeadGen ? METRIC_OPTIONS_LEADGEN : METRIC_OPTIONS_ECOM;
   const [selectedMetrics, setSelectedMetrics] = useState<Set<string>>(
     new Set(isLeadGen
@@ -328,6 +345,19 @@ export default function ReportsPage() {
     <>
       <Header title="Reports" dataBadge={{ loading: windsorLoading, isLive: !!isLive }} filterRow={isIrg ? <VenueTabs /> : undefined} />
 
+      {/* Lead-gen / hybrid clients (Ministry, etc.) see the dedicated
+          weekly/monthly report builder. Everyone else falls through to
+          the generic ROAS-flavoured builder below. */}
+      {isLeadGen ? (
+        <div className="flex-1 p-3 sm:p-4 lg:p-6 overflow-y-auto">
+          <MinistryReportBuilder
+            windsorData={windsorData ?? null}
+            hubspotData={hubspotData ?? null}
+            currency={clientOrNull?.currency ?? "GBP"}
+            defaultPeriodLabel={`${preset === "Custom" && dateFrom && dateTo ? `${fmtFullDate(new Date(dateFrom))} – ${fmtFullDate(new Date(dateTo))}` : `Last ${days} days`} (${clientLocale})`}
+          />
+        </div>
+      ) : (
       <div className="flex-1 p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 overflow-y-auto">
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
@@ -531,6 +561,7 @@ export default function ReportsPage() {
           </div>
         </div>
       </div>
+      )}
     </>
   );
 }
