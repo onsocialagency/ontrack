@@ -179,7 +179,21 @@ export function getBillingPeriod(billingStartDay: number): BillingPeriod {
     const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     return `${d.getDate()} ${months[d.getMonth()]}`;
   };
-  const fmtISO = (d: Date) => d.toISOString().slice(0, 10);
+  // Local-date YYYY-MM-DD — NOT toISOString().slice(0,10).
+  // The Date objects above are constructed via `new Date(y, m, d)`, so
+  // they're local-midnight instants. toISOString() shifts to UTC, which
+  // flips the calendar day for any non-UTC zone (in a +04:00 timezone,
+  // local Apr 1 00:00 → 2026-03-31T20:00:00Z → "2026-03-31"). That
+  // off-by-one made the Budget Pacing fetch ask Windsor for the wrong
+  // window, missing today's spend and including the previous month's
+  // last day. Format from local date components directly so the ISO
+  // string represents the same calendar day the user is looking at.
+  const fmtISO = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
 
   return {
     start,
