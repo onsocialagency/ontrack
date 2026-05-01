@@ -120,44 +120,39 @@ export default function IrgOverview() {
         {/* Pre-28-April caveat — applies to any revenue card downstream */}
         <PreFixDateNote fixedOn={PURCHASE_VALUE_FIX_DATE} />
 
-        {/* 1. KPI Row */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+        {/* 1. KPI Row — OnSocial-only headline. Hotel revenue lives
+            in its own dedicated section below the brand grid; it isn't
+            an OnSocial number, so it doesn't belong in the headline
+            spend / revenue / ROAS frame. */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <KpiCard
-            title="Total Spend"
+            title="OnSocial Spend"
             value={formatCurrency(kpis.totalSpend, "EUR")}
             delta={kpis.totalSpendDeltaPct}
             icon={<Euro size={12} />}
-            subLabel="OnSocial managed · vs last week"
+            subLabel="OS_ campaigns · Meta + Google"
             accentColor={ACCENT_GREEN}
           />
           <KpiCard
-            title="Events Revenue"
+            title="OnSocial Revenue"
             value={formatCurrency(kpis.eventsRevenue, "EUR")}
             delta={kpis.eventsRevenueDeltaPct}
             icon={<Ticket size={12} />}
-            subLabel="Four Venues confirmed"
+            subLabel="Events revenue · Four Venues confirmed"
             accentColor={ACCENT_GREEN}
-          />
-          <KpiCard
-            title="Hotel Revenue"
-            value={formatCurrency(kpis.hotelRevenue, "EUR")}
-            delta={kpis.hotelRevenueDeltaPct}
-            icon={<Users size={12} />}
-            subLabel="Up Hotel / Google · context only"
-            accentColor="#94A3B8"
           />
           <KpiCard
             title="Overall ROAS"
             value={`${kpis.overallRoas.toFixed(1)}x`}
-            delta={Number(((kpis.overallRoasDelta / kpis.overallRoas) * 100).toFixed(1))}
+            delta={Number(((kpis.overallRoasDelta / kpis.overallRoas || 0) * 100).toFixed(1))}
             icon={<TrendingUp size={12} />}
-            subLabel="Total revenue ÷ OnSocial spend"
+            subLabel="OnSocial revenue ÷ OnSocial spend"
             accentColor={ACCENT_GREEN}
           />
           <KpiCard
             title="Tickets Sold"
             value={formatNumber(kpis.ticketsSold)}
-            delta={Number(((kpis.ticketsDelta / kpis.ticketsSold) * 100).toFixed(1))}
+            delta={Number(((kpis.ticketsDelta / kpis.ticketsSold || 0) * 100).toFixed(1))}
             icon={<Ticket size={12} />}
             subLabel="Four Venues confirmed"
             accentColor={ACCENT_GOLD}

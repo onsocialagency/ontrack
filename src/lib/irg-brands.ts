@@ -163,6 +163,31 @@ export const IRG_GOOGLE_ACCOUNTS = ["278-470-9624", "534-641-8417"];
 /** Pre-existing (IRG-managed, not OnSocial) campaign patterns */
 export const IRG_PREEXISTING_CAMPAIGNS = ["manumission"];
 
+/**
+ * OnSocial naming convention check.
+ *
+ * Per Zack: OnSocial campaigns are identified by an `OS_` (or
+ * occasionally `OS `) prefix on the campaign name. Campaigns without
+ * that prefix in the IRG accounts are managed by other agencies (e.g.
+ * Up Hotel for hotel/PMAX, IRG internal team for some Demand Gen and
+ * Group campaigns) and must NOT be counted toward OnSocial spend or
+ * revenue totals.
+ *
+ * Two exceptions are baked in:
+ *   - `manumission` — a Pikes Presents pre-existing campaign that
+ *     OnSocial inherited; treated as OnSocial despite the naming.
+ *   - The 528 ad account is fully OnSocial regardless of prefix —
+ *     everything that runs in that account is ours, including any
+ *     legacy / exception names. The check is bypassed inside
+ *     assignIrgBrand for that account.
+ */
+export function isOnSocialCampaign(name: string): boolean {
+  const lower = (name || "").toLowerCase().trim();
+  if (lower.startsWith("os_") || lower.startsWith("os ")) return true;
+  if (IRG_PREEXISTING_CAMPAIGNS.some((p) => lower.includes(p))) return true;
+  return false;
+}
+
 /* ── GA4 hostname split ──
  *
  * IRG runs two booking platforms feeding the same GA4 property.
@@ -193,37 +218,49 @@ export const PURCHASE_VALUE_FIX_DATE = "2026-04-28";
 
 /**
  * Assign a campaign to the correct IRG brand based on campaign name + account ID.
+ *
+ * Returns "UNKNOWN" for any campaign that isn't OnSocial-managed
+ * (no OS_ prefix and no Pikes legacy marker, outside the 528 account
+ * exception). Up Hotel campaigns route to "IR_HOTEL" so they can be
+ * surfaced as read-only context. The "all" headline aggregation in
+ * aggregateHeadlineKpis filters both UNKNOWN and IR_HOTEL out so
+ * OnSocial totals only count campaigns OnSocial actually runs.
  */
 export function assignIrgBrand(campaignName: string, accountId: string): IrgBrandId | "UNKNOWN" {
   const name = (campaignName || "").toLowerCase();
+  const onSocial = isOnSocialCampaign(campaignName);
 
-  // 528 Meta account — also home to Pikes Presents
+  // 528 Meta account — every campaign here is OnSocial-managed (per
+  // Zack: "528 should be the 528 ad account, and anything that comes
+  // in the 528 ad account"). Pikes is a carve-out within this account.
   if (accountId === "699834239363956") {
     if (name.includes("os_pikespresent") || name.includes("manumission")) {
       return "PIKES_PRESENTS";
     }
-    if (name.includes("os_528")) {
-      return "528_VENUE";
-    }
     return "528_VENUE";
   }
 
-  // 528 Google account — all campaigns are 528
+  // 528 Google account — all campaigns are 528, OnSocial-managed.
   if (accountId === "534-641-8417") return "528_VENUE";
 
-  // Rocks Google account — split by campaign name. Pool Club rolls up
-  // under IR_EVENTS (per Zack — Pool Club is at Ibiza Rocks, an event).
+  // Rocks Google account (278-470-9624) — split by campaign name.
+  // Hotel patterns route to IR_HOTEL (Up Hotel context). Anything OS-
+  // prefixed routes to IR_EVENTS. Anything else (DG_, GROUP_, …) is
+  // a different agency's work and gets UNKNOWN so it stays out of
+  // OnSocial totals.
   if (accountId === "278-470-9624") {
     if (name.includes("hotel") || name.includes("ho_")) return "IR_HOTEL";
-    if (name.includes("pool") || name.includes("group") || name.includes("dg_")) return "IR_EVENTS";
-    return "IR_HOTEL";
+    if (onSocial) return "IR_EVENTS";
+    return "UNKNOWN";
   }
 
-  // Ibiza Rocks Meta account
+  // Ibiza Rocks Meta account (511748048632829). Hotel campaigns →
+  // IR_HOTEL, OS-prefixed → IR_EVENTS, everything else → UNKNOWN
+  // (don't claim non-OnSocial campaigns as IR_EVENTS spend).
   if (accountId === "511748048632829") {
     if (name.includes("os_irh") || name.includes("hotel") || name.includes("staylist")) return "IR_HOTEL";
-    // Pool / events / OS_IRE all roll up under IR_EVENTS
-    return "IR_EVENTS";
+    if (onSocial) return "IR_EVENTS";
+    return "UNKNOWN";
   }
 
   return "UNKNOWN";

@@ -113,10 +113,15 @@ export function aggregateHeadlineKpis(
   const totalSpend = scope.reduce((s, r) => s + r.spend, 0);
   const ticketsSold = scope.reduce((s, r) => s + r.conversions, 0);
   const eventsRevenue = scope.reduce((s, r) => s + r.revenue, 0);
+  // Hotel revenue is computed separately from the OnSocial totals.
+  // Headline ROAS / total revenue is OnSocial-only (per Zack — hotel
+  // is managed by Up Hotel, not OnSocial, so it doesn't belong in the
+  // dashboard's headline efficiency number). Hotel still surfaces in
+  // its own dedicated section, sourced from this hotelRevenue field.
   const hotelRevenue = brand === "IR_HOTEL"
     ? scope.reduce((s, r) => s + r.revenue, 0)
     : hotel.reduce((s, r) => s + r.revenue, 0);
-  const totalRevenue = brand === "all" ? eventsRevenue + hotelRevenue : eventsRevenue;
+  const totalRevenue = eventsRevenue;
   const cpa = ticketsSold > 0 ? totalSpend / ticketsSold : 0;
   const overallRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
@@ -146,7 +151,8 @@ export function aggregateHeadlineKpis(
     const prevHotelRev = brand === "IR_HOTEL"
       ? prevScope.reduce((s, r) => s + r.revenue, 0)
       : prevHotel.reduce((s, r) => s + r.revenue, 0);
-    const prevTotalRev = brand === "all" ? prevEventsRev + prevHotelRev : prevEventsRev;
+    // OnSocial-only previous total — hotel never gets added in.
+    const prevTotalRev = prevEventsRev;
     const prevCpa = prevTickets > 0 ? prevSpend / prevTickets : 0;
     const prevRoas = prevSpend > 0 ? prevTotalRev / prevSpend : 0;
 
