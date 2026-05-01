@@ -51,7 +51,8 @@ import {
   AlertTriangle, Mail, Users, Euro, Ticket, TrendingUp, Music2,
 } from "lucide-react";
 import {
-  ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid,
+  ResponsiveContainer, Line, XAxis, YAxis, Tooltip, CartesianGrid,
+  ComposedChart, Bar,
 } from "recharts";
 
 const ACCENT_GREEN = "#1D9E75";
@@ -253,32 +254,60 @@ export default function IrgOverview() {
           </div>
         )}
 
-        {/* 6. Bottom row: chart + Rocks Club */}
+        {/* Brand performance — horizontal bar chart so the eye reads
+            spend / revenue / ROAS across brands at a glance. Sits
+            above the daily chart since brand mix is the higher-level
+            comparison; daily trend is the drill-down. */}
+        <BrandComparisonChart rows={brandRows} />
+
+        {/* Bottom row: daily chart + Rocks Club */}
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-4">
-          {/* Daily performance chart */}
+          {/* Daily performance chart — composed:
+              Bars (left axis €)   = Spend
+              Line (right axis €)  = Events Revenue
+              Toggle adds CPA / Sales line variants for drill-down. */}
           <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-3">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
-                Daily performance · 14 days
-              </h2>
-              <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.06] rounded-lg p-0.5 text-[10px] font-semibold uppercase tracking-wider">
-                {(["spend", "sales", "cpa"] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setChartMetric(m)}
-                    className={cn(
-                      "px-2.5 py-1 rounded-md transition-colors",
-                      chartMetric === m ? "bg-white/[0.08] text-white" : "text-[#94A3B8] hover:text-white",
-                    )}
-                  >
-                    {m}
-                  </button>
-                ))}
+            <div className="flex items-start justify-between flex-wrap gap-2">
+              <div>
+                <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
+                  Daily performance · 14 days
+                </h2>
+                <p className="text-[11px] text-[#64748B] mt-0.5">
+                  Bars = spend · Line = {chartMetric === "spend" ? "events revenue" : chartMetric === "sales" ? "tickets sold" : "CPA"}
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1 text-[10px] text-[#94A3B8]">
+                  <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: ACCENT_GOLD, opacity: 0.5 }} />
+                  Spend
+                </span>
+                <span className="inline-flex items-center gap-1 text-[10px] text-[#94A3B8]">
+                  <span className="w-3 h-0.5 rounded-full" style={{ backgroundColor: ACCENT_GREEN }} />
+                  {chartMetric === "spend" ? "Revenue" : chartMetric === "sales" ? "Sales" : "CPA"}
+                </span>
+                <div className="inline-flex items-center bg-white/[0.04] border border-white/[0.06] rounded-lg p-0.5 text-[10px] font-semibold uppercase tracking-wider">
+                  {([
+                    { id: "spend", label: "Revenue" },
+                    { id: "sales", label: "Sales" },
+                    { id: "cpa", label: "CPA" },
+                  ] as const).map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => setChartMetric(m.id)}
+                      className={cn(
+                        "px-2.5 py-1 rounded-md transition-colors",
+                        chartMetric === m.id ? "bg-white/[0.08] text-white" : "text-[#94A3B8] hover:text-white",
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
             <div className="h-[260px]">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={dailySeries} margin={{ top: 8, right: 16, bottom: 0, left: 4 }}>
+                <ComposedChart data={dailySeries} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
                   <XAxis
                     dataKey="date"
@@ -287,11 +316,26 @@ export default function IrgOverview() {
                     axisLine={false}
                     tickFormatter={(v: string) => v.slice(5)}
                   />
+                  {/* Left axis = spend in €. Always currency. */}
                   <YAxis
+                    yAxisId="left"
                     tick={{ fill: "#94A3B8", fontSize: 9 }}
                     tickLine={false}
                     axisLine={false}
-                    width={48}
+                    width={52}
+                    tickFormatter={(v: number) =>
+                      `€${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}`
+                    }
+                  />
+                  {/* Right axis units depend on which line is shown. */}
+                  <YAxis
+                    yAxisId="right"
+                    orientation="right"
+                    tick={{ fill: "#94A3B8", fontSize: 9 }}
+                    tickLine={false}
+                    axisLine={false}
+                    width={chartMetric === "sales" ? 36 : 48}
+                    allowDecimals={chartMetric !== "sales"}
                     tickFormatter={(v: number) =>
                       chartMetric === "sales"
                         ? formatNumber(v)
@@ -299,30 +343,48 @@ export default function IrgOverview() {
                     }
                   />
                   <Tooltip
+                    cursor={{ fill: "rgba(255,255,255,0.03)" }}
                     contentStyle={{
                       backgroundColor: "#1A1A2E",
                       border: "1px solid rgba(255,255,255,0.1)",
                       borderRadius: "8px",
                       fontSize: 11,
+                      padding: "8px 10px",
                     }}
-                    labelStyle={{ color: "#94A3B8" }}
-                    formatter={(val: unknown) => {
+                    labelStyle={{ color: "#94A3B8", fontWeight: 600, marginBottom: 4 }}
+                    formatter={(val: unknown, name: unknown) => {
                       const n = Number(val ?? 0);
-                      if (chartMetric === "sales") return [formatNumber(n), "Sales"];
-                      if (chartMetric === "cpa") return [formatCurrency(n, "EUR"), "CPA"];
-                      return [formatCurrency(n, "EUR"), "Spend"];
+                      if (name === "spend") return [formatCurrency(n, "EUR"), "Spend"];
+                      if (name === "sales") return [formatNumber(n), "Sales"];
+                      if (name === "cpa") return [formatCurrency(n, "EUR"), "CPA"];
+                      if (name === "revenue") return [formatCurrency(n, "EUR"), "Revenue"];
+                      return [String(val), String(name)];
                     }}
                   />
+                  {/* Spend bars are always shown — base layer that
+                      the secondary line is read against. */}
+                  <Bar
+                    yAxisId="left"
+                    dataKey="spend"
+                    fill={ACCENT_GOLD}
+                    fillOpacity={0.5}
+                    radius={[3, 3, 0, 0]}
+                    name="spend"
+                    maxBarSize={28}
+                  />
+                  {/* Secondary series swaps based on the toggle. */}
                   <Line
+                    yAxisId="right"
                     type="monotone"
-                    dataKey={chartMetric}
+                    dataKey={chartMetric === "spend" ? "revenue" : chartMetric}
                     stroke={ACCENT_GREEN}
                     strokeWidth={2.25}
                     dot={{ r: 2.5, fill: ACCENT_GREEN, stroke: "#0A0A0F", strokeWidth: 1 }}
                     activeDot={{ r: 4, fill: ACCENT_GREEN, stroke: "#0A0A0F", strokeWidth: 2 }}
+                    name={chartMetric === "spend" ? "revenue" : chartMetric}
                     isAnimationActive={false}
                   />
-                </LineChart>
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           </div>
@@ -436,6 +498,110 @@ function PlatformCard({
       </div>
       <p className="text-xl sm:text-2xl font-bold tabular-nums text-white">{value}</p>
       <p className={cn("text-[10px] mt-1", preLaunch ? "text-[#94A3B8]/60" : "text-[#94A3B8]")}>{sub}</p>
+    </div>
+  );
+}
+
+/**
+ * Horizontal comparison chart — one row per OnSocial brand showing
+ * three bars (spend / revenue / ROAS×1000 to share the same scale).
+ * Hotel is excluded because OnSocial has no spend there. Each bar
+ * picks up the brand's accent colour so the chart reads as an
+ * extension of the brand cards above it.
+ */
+function BrandComparisonChart({
+  rows,
+}: {
+  rows: ReturnType<typeof getBrandGrid>;
+}) {
+  const data = useMemo(() => {
+    return rows
+      .filter((r) => r.brand !== "IR_HOTEL" && r.spend > 0)
+      .map((r) => ({
+        brand: IRG_BRANDS[r.brand].shortLabel,
+        color: IRG_BRANDS[r.brand].color,
+        spend: r.spend,
+        revenue: r.eventsRevenue,
+        roas: r.roas ?? 0,
+      }));
+  }, [rows]);
+
+  if (data.length === 0) return null;
+
+  return (
+    <div className="bg-white/[0.04] border border-white/[0.06] rounded-xl sm:rounded-2xl p-4 sm:p-6 space-y-3">
+      <div className="flex items-baseline justify-between gap-2 flex-wrap">
+        <h2 className="text-[10px] font-semibold text-[#94A3B8] uppercase tracking-wider">
+          Brand comparison · spend vs revenue
+        </h2>
+        <p className="text-[11px] text-[#64748B]">
+          ROAS shown inline on each row
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {data.map((d) => {
+          const maxRevenue = Math.max(...data.map((x) => x.revenue));
+          const maxSpend = Math.max(...data.map((x) => x.spend));
+          // Bars share a common axis so eye-comparing across brands
+          // is meaningful. Use the global max so a tiny brand isn't
+          // visually inflated.
+          const widthBasis = Math.max(maxRevenue, maxSpend, 1);
+          const spendPct = (d.spend / widthBasis) * 100;
+          const revenuePct = (d.revenue / widthBasis) * 100;
+          return (
+            <div key={d.brand}>
+              <div className="flex items-baseline justify-between text-[11px] mb-1.5">
+                <span className="font-semibold text-white">{d.brand}</span>
+                <span className="text-[#94A3B8]">
+                  ROAS:{" "}
+                  <span
+                    className="font-semibold tabular-nums"
+                    style={{ color: d.roas >= 10 ? ACCENT_GREEN : "#f0ede8" }}
+                  >
+                    {d.roas.toFixed(1)}x
+                  </span>
+                </span>
+              </div>
+              <div className="space-y-1.5">
+                {/* Spend bar — muted, narrower */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-[#64748B] w-14">Spend</span>
+                  <div className="flex-1 h-2 rounded-full bg-white/[0.04] overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${spendPct}%`,
+                        backgroundColor: d.color,
+                        opacity: 0.45,
+                      }}
+                    />
+                  </div>
+                  <span className="text-[10px] tabular-nums text-[#94A3B8] w-16 text-right">
+                    {formatCurrency(d.spend, "EUR")}
+                  </span>
+                </div>
+                {/* Revenue bar — full opacity, the headline number */}
+                <div className="flex items-center gap-2">
+                  <span className="text-[9px] text-[#64748B] w-14">Revenue</span>
+                  <div className="flex-1 h-2 rounded-full bg-white/[0.04] overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${revenuePct}%`,
+                        backgroundColor: d.color,
+                      }}
+                    />
+                  </div>
+                  <span className="text-[10px] tabular-nums text-white w-16 text-right">
+                    {formatCurrency(d.revenue, "EUR")}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

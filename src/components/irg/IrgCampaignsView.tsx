@@ -31,6 +31,9 @@ import { IRG_BRANDS } from "@/lib/irg-brands";
 import { getIrgCampaigns, type IrgCampaignRow } from "@/lib/irg-mock";
 import { aggregateCampaigns } from "@/lib/irg-live";
 import { MetaIcon, GoogleIcon } from "@/components/ui/platform-icons";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+} from "recharts";
 
 const CARD_BG = "bg-white/[0.04]";const CARD_BORDER = "border-white/[0.06]";const ACCENT_GOLD = "#C8A96E";
 
@@ -152,6 +155,13 @@ export default function IrgCampaignsView() {
             {visible.length} {visible.length === 1 ? "campaign" : "campaigns"}
           </span>
         </div>
+
+        {/* Top spend chart — top 8 campaigns by spend with revenue
+            overlay. Sits above the table so the eye reads "where the
+            money's going" before reading every row. Bar colour comes
+            from the brand accent so a glance also tells you the brand
+            mix. */}
+        <CampaignSpendChart rows={visible} />
 
         {/* Table */}
         <div className={cn("rounded-xl sm:rounded-2xl border overflow-hidden", CARD_BG, CARD_BORDER)}>
@@ -373,6 +383,92 @@ function AdSetStat({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-[9px] uppercase tracking-wider text-[#475569]">{label}</p>
       <p className="text-white tabular-nums font-medium mt-0.5">{value}</p>
+    </div>
+  );
+}
+
+/**
+ * Top campaigns by spend — vertical bar chart with brand-coloured
+ * bars. Hidden when fewer than 2 campaigns are visible (chart adds
+ * no value over the table at that point).
+ */
+function CampaignSpendChart({ rows }: { rows: IrgCampaignRow[] }) {
+  const data = useMemo(() => {
+    return rows
+      .slice()
+      .sort((a, b) => b.spend - a.spend)
+      .slice(0, 8)
+      .map((r) => ({
+        // Truncate long campaign names so the X axis stays readable.
+        name: r.campaignName.length > 22 ? `${r.campaignName.slice(0, 22)}…` : r.campaignName,
+        fullName: r.campaignName,
+        spend: r.spend,
+        revenue: r.eventsRevenue + r.hotelRevenue,
+        colour: IRG_BRANDS[r.brand].color,
+      }));
+  }, [rows]);
+
+  if (data.length < 2) return null;
+
+  return (
+    <div className={cn("rounded-xl sm:rounded-2xl border p-4 sm:p-6", CARD_BG, CARD_BORDER)}>
+      <div className="flex items-baseline justify-between flex-wrap gap-2 mb-3">
+        <h3 className="text-[10px] uppercase tracking-wider font-semibold text-[#94A3B8]">
+          Top campaigns by spend
+        </h3>
+        <p className="text-[11px] text-[#64748B]">
+          Bar colour = brand · click a row in the table for the full set
+        </p>
+      </div>
+      <div className="h-[240px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={data} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+            <XAxis
+              dataKey="name"
+              tick={{ fill: "#94A3B8", fontSize: 9 }}
+              tickLine={false}
+              axisLine={false}
+              interval={0}
+              angle={-15}
+              textAnchor="end"
+              height={50}
+            />
+            <YAxis
+              tick={{ fill: "#94A3B8", fontSize: 9 }}
+              tickLine={false}
+              axisLine={false}
+              width={52}
+              tickFormatter={(v: number) => `€${v >= 1000 ? `${(v / 1000).toFixed(1)}k` : v.toFixed(0)}`}
+            />
+            <Tooltip
+              cursor={{ fill: "rgba(255,255,255,0.03)" }}
+              contentStyle={{
+                backgroundColor: "#1A1A2E",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "8px",
+                fontSize: 11,
+              }}
+              labelStyle={{ color: "#94A3B8" }}
+              formatter={(val: unknown, name: unknown) => {
+                const n = Number(val ?? 0);
+                if (name === "spend") return [fmtEur(n), "Spend"];
+                if (name === "revenue") return [fmtEur(n), "Revenue"];
+                return [String(val), String(name)];
+              }}
+              labelFormatter={(_label, payload) => {
+                const item = payload?.[0]?.payload as { fullName?: string } | undefined;
+                return item?.fullName ?? "";
+              }}
+            />
+            <Bar dataKey="spend" radius={[3, 3, 0, 0]} maxBarSize={48}>
+              {data.map((d, i) => (
+                <Cell key={i} fill={d.colour} fillOpacity={0.85} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }

@@ -31,6 +31,9 @@ import { PURCHASE_VALUE_FIX_DATE } from "@/lib/irg-brands";
 import { getIrgReconciliation } from "@/lib/irg-mock";
 import { aggregateReconciliation } from "@/lib/irg-live";
 import { Info, AlertTriangle } from "lucide-react";
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
+} from "recharts";
 
 const CARD_BG = "bg-white/[0.04]";const CARD_BORDER = "border-white/[0.06]";const ACCENT_GREEN = "#1D9E75";
 const ACCENT_GOLD = "#C8A96E";
@@ -166,6 +169,69 @@ function IrgReconciliationView() {
           )}
         </div>
 
+        {/* Sales comparison chart — visualises the over-attribution
+            gap. Three bars (Meta reported / Google reported / GA4
+            confirmed) makes the disparity obvious without reading
+            the numbers off the cards above. */}
+        <div className={cn("rounded-xl sm:rounded-2xl border p-4 sm:p-6", CARD_BG, CARD_BORDER)}>
+          <h3 className="text-[10px] uppercase tracking-wider font-semibold text-[#94A3B8] mb-3">
+            Sales comparison · platform vs GA4
+          </h3>
+          <div className="h-[220px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={[
+                  { name: "Meta reported", value: r.metaPlatformReported, colour: "#3B82F6" },
+                  { name: "Google reported", value: r.googlePlatformReported, colour: "#F59E0B" },
+                  { name: "Four Venues confirmed", value: r.fourVenuesConfirmed, colour: ACCENT_GREEN },
+                ]}
+                margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: "#94A3B8", fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tick={{ fill: "#94A3B8", fontSize: 9 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={48}
+                  tickFormatter={(v: number) => fmtNumber(v)}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                  contentStyle={{
+                    backgroundColor: "#1A1A2E",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: "8px",
+                    fontSize: 11,
+                  }}
+                  labelStyle={{ color: "#94A3B8" }}
+                  formatter={(val: unknown) => [fmtNumber(Number(val ?? 0)), "Sales"]}
+                />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={80}>
+                  {[
+                    { colour: "#3B82F6" },
+                    { colour: "#F59E0B" },
+                    { colour: ACCENT_GREEN },
+                  ].map((entry, i) => (
+                    <Cell key={i} fill={entry.colour} fillOpacity={0.85} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[11px] text-[#64748B] leading-relaxed mt-1">
+            Platform totals exceed GA4 because Meta credits view-through
+            and Google credits assisted clicks within their attribution
+            windows. Four Venues confirms only what the CRM saw — the
+            number we defend.
+          </p>
+        </div>
+
         {/* Revenue breakdown */}
         <div className={cn("rounded-xl sm:rounded-2xl border overflow-hidden", CARD_BG, CARD_BORDER)}>
           <div className="px-4 py-3 border-b border-white/[0.06]">
@@ -232,6 +298,71 @@ function IrgReconciliationView() {
               </tr>
             </tbody>
           </table>
+        </div>
+
+        {/* Revenue chart — same shape as the sales chart but in €.
+            Splits the GA4 confirmed revenue into events (forvenues.com)
+            vs hotel (ibizarox.com) so you see the platform totals next
+            to the headline GA4 numbers without adding them. */}
+        <div className={cn("rounded-xl sm:rounded-2xl border p-4 sm:p-6", CARD_BG, CARD_BORDER)}>
+          <h3 className="text-[10px] uppercase tracking-wider font-semibold text-[#94A3B8] mb-3">
+            Revenue comparison · platform vs GA4
+          </h3>
+          <div className="h-[240px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={[
+                  { name: "Meta reported", value: r.metaPlatformRevenue, colour: "#3B82F6" },
+                  { name: "Google reported", value: r.googlePlatformRevenue, colour: "#F59E0B" },
+                  { name: "GA4 events", value: r.eventsRevenue, colour: ACCENT_GREEN },
+                  { name: "GA4 hotel", value: r.hotelRevenue, colour: "#94A3B8" },
+                ]}
+                margin={{ top: 8, right: 16, bottom: 0, left: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
+                <XAxis
+                  dataKey="name"
+                  tick={{ fill: "#94A3B8", fontSize: 10 }}
+                  tickLine={false}
+                  axisLine={false}
+                />
+                <YAxis
+                  tick={{ fill: "#94A3B8", fontSize: 9 }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={56}
+                  tickFormatter={(v: number) => `€${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v.toFixed(0)}`}
+                />
+                <Tooltip
+                  cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                  contentStyle={{
+                    backgroundColor: "#1A1A2E",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: "8px",
+                    fontSize: 11,
+                  }}
+                  labelStyle={{ color: "#94A3B8" }}
+                  formatter={(val: unknown) => [fmtEur(Number(val ?? 0)), "Revenue"]}
+                />
+                <Bar dataKey="value" radius={[4, 4, 0, 0]} maxBarSize={80}>
+                  {[
+                    { colour: "#3B82F6" },
+                    { colour: "#F59E0B" },
+                    { colour: ACCENT_GREEN },
+                    { colour: "#94A3B8" },
+                  ].map((entry, i) => (
+                    <Cell key={i} fill={entry.colour} fillOpacity={0.85} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <p className="text-[11px] text-[#64748B] leading-relaxed mt-1">
+            GA4 events + hotel are the source-of-truth revenue numbers,
+            split by hostname. Meta and Google bars are the same period
+            from each platform&apos;s reporting — never sum them with
+            the GA4 figures, they overlap.
+          </p>
         </div>
 
         {/* Pikes ad-account note + purchase-value note */}
